@@ -1,10 +1,5 @@
-import {
-  createUserWithEmailAndPassword,
-  getRedirectResult,
-  signInWithPopup,
-  signInWithRedirect,
-} from 'firebase/auth'
-import { useEffect, useState } from 'react'
+import { createUserWithEmailAndPassword, signInWithPopup } from 'firebase/auth'
+import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { auth, googleProvider } from '../lib/firebase'
 
@@ -32,17 +27,6 @@ export function Signup() {
   const [password, setPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
 
-  useEffect(() => {
-    void (async () => {
-      try {
-        const res = await getRedirectResult(auth)
-        if (res?.user) nav('/onboarding', { replace: true })
-      } catch (e) {
-        setError(formatAuthError(e))
-      }
-    })()
-  }, [nav])
-
   const signupEmail = async () => {
     try {
       setError(null)
@@ -59,20 +43,6 @@ export function Signup() {
       await signInWithPopup(auth, googleProvider)
       nav('/onboarding', { replace: true })
     } catch (e) {
-      const code = (e as any)?.code
-      if (
-        code === 'auth/popup-blocked' ||
-        code === 'auth/cancelled-popup-request' ||
-        code === 'auth/web-storage-unsupported'
-      ) {
-        try {
-          await signInWithRedirect(auth, googleProvider)
-          return
-        } catch (err2) {
-          setError(formatAuthError(err2))
-          return
-        }
-      }
       setError(formatAuthError(e))
     }
   }
