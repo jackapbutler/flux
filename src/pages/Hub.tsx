@@ -124,16 +124,6 @@ export function Hub() {
     }
   }
 
-  const buildPersona = async () => {
-    try {
-      setError(null)
-      const fn = httpsCallable<undefined, { text: string }>(functions, 'buildFitnessPersona')
-      await fn()
-    } catch (e) {
-      setError(errorMessage(e))
-    }
-  }
-
   const connected = Boolean(profile?.strava?.connected)
 
   return (
