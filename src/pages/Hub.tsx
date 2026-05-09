@@ -97,19 +97,8 @@ export function Hub() {
       <section className="card">
         <h2>Hub</h2>
         <p className="muted">Goal: {profile?.goalText ? `“${profile.goalText}”` : 'not set'}</p>
-        <p className="muted" style={{ marginTop: 6 }}>
-          Persona: {profile?.fitnessPersonaText ? 'ready ✓' : 'not built yet'}
-        </p>
 
         <div className="row" style={{ marginTop: 10 }}>
-          <button
-            type="button"
-            className="secondary"
-            onClick={() => void buildPersona()}
-            disabled={!user}
-          >
-            {profile?.fitnessPersonaText ? 'Refresh persona' : 'Build persona'}
-          </button>
           {!connected ? (
             <p className="muted">
               Connect Strava in <Link to="/onboarding">Settings</Link>.
@@ -168,28 +157,31 @@ export function Hub() {
             {workouts.map((w) => {
               const expanded = expandedWorkoutId === w.id
               return (
-                <li key={w.id} className="listItem" style={{ flexDirection: 'column', alignItems: 'stretch' }}>
-                  <div className="row" style={{ justifyContent: 'space-between' }}>
-                    <div>
+                <li key={w.id} className="listItem" style={{ padding: 12, borderRadius: 12, boxShadow: '0 6px 18px rgba(15,23,42,0.04)', marginBottom: 12, background: 'linear-gradient(180deg, rgba(255,255,255,0.8), rgba(250,250,250,0.9))' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+                    <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
+                      <div style={{ width: 48, height: 48, borderRadius: 10, background: 'linear-gradient(135deg, var(--accent), #7dd3fc)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'white', fontWeight: 700 }}>
+                        {(w.strava?.type ?? 'W').slice(0, 1).toUpperCase()}
+                      </div>
                       <div>
-                        {w.strava?.type ?? 'Workout'} — {w.strava?.name ?? w.id}
+                        <div style={{ fontWeight: 600 }}>{w.strava?.name ?? w.id}</div>
+                        <div className="muted" style={{ fontSize: 12 }}>{w.strava?.startDate ? new Date(w.strava.startDate).toLocaleString() : ''}</div>
+                        <div className="muted" style={{ fontSize: 12 }}>{w.strava?.distance ? `${(w.strava.distance / 1000).toFixed(1)} km • ` : ''}{w.strava?.elapsedTime ? `${Math.round(w.strava.elapsedTime / 60)} min` : ''}</div>
                       </div>
-                      <div className="muted">
-                        {w.strava?.startDate ? new Date(w.strava.startDate).toLocaleString() : ''}
-                      </div>
-                      <div className="muted">Context: {w.context?.text ? '✓' : '—'}</div>
                     </div>
-                    <button
-                      type="button"
-                      className="secondary"
-                      onClick={() => setExpandedWorkoutId(expanded ? null : w.id)}
-                    >
-                      {expanded ? 'Close' : w.context?.text ? 'Edit context' : 'Add context'}
-                    </button>
+
+                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 8 }}>
+                      <div className="muted" style={{ fontSize: 12 }}>Context: {w.context?.text ? '✓' : '—'}</div>
+                      <button type="button" className="secondary" onClick={() => setExpandedWorkoutId(expanded ? null : w.id)}>
+                        {expanded ? 'Close' : w.context?.text ? 'Edit' : 'Add context'}
+                      </button>
+                    </div>
                   </div>
 
                   {expanded && user ? (
-                    <WorkoutContextEditor uid={user.uid} workoutId={w.id} initialText={w.context?.text ?? ''} />
+                    <div style={{ marginTop: 12 }}>
+                      <WorkoutContextEditor uid={user.uid} workoutId={w.id} initialText={w.context?.text ?? ''} />
+                    </div>
                   ) : null}
                 </li>
               )
