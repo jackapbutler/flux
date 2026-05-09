@@ -96,8 +96,15 @@ export function Onboarding() {
   return (
     <main className="grid">
       <section className="card">
-        <h2>Setup</h2>
-        <p className="muted">Two quick steps, then you’re in.</p>
+        <div style={{ display: 'flex', gap: 16, alignItems: 'center' }}>
+          <div style={{ width: 92, height: 92, borderRadius: 16, background: 'linear-gradient(135deg, rgba(6,182,212,0.12), rgba(59,130,246,0.12))', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <svg width="44" height="44" viewBox="0 0 24 24" fill="none"><path d="M12 6v6l4 2" stroke="#0369a1" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"/><circle cx="12" cy="8" r="1" fill="#0369a1"/></svg>
+          </div>
+          <div>
+            <h2>Welcome to Flux</h2>
+            <p className="muted">A calm training hub for all fitness — import logged workouts from Strava and add context. AI refines your profile privately to give better, personalised guidance.</p>
+          </div>
+        </div>
 
         <div className="stack">
           <label className="field">
@@ -105,7 +112,7 @@ export function Onboarding() {
             <input
               value={goalText}
               onChange={(e) => setGoalText(e.target.value)}
-              placeholder="E.g. get stronger for running, 3x/week, stay injury-free"
+              placeholder="E.g. build strength, improve endurance, attend classes 2x/week"
             />
           </label>
 
@@ -139,7 +146,7 @@ export function Onboarding() {
                   onClick={() => void syncAndPersona()}
                   disabled={syncing}
                 >
-                  {syncing ? 'Pulling workouts…' : 'Pull workouts + build persona'}
+                  {syncing ? 'Pulling workouts…' : 'Pull workouts'}
                 </button>
                 <button type="button" className="secondary" onClick={() => nav('/app')}>
                   Go to Hub
