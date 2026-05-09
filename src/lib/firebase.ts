@@ -61,7 +61,7 @@ function init(): void {
   auth = getAuth(app)
   auth.useDeviceLanguage()
   db = getFirestore(app)
-  functions = getFunctions(app)
+  functions = getFunctions(app, 'us-central1')
   storage = getStorage(app)
 
   if (import.meta.env.VITE_USE_EMULATORS === 'true') {
