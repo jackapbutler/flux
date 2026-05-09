@@ -1,7 +1,8 @@
 import { ref as storageRef, uploadBytes, getDownloadURL } from 'firebase/storage'
 import { doc, serverTimestamp, updateDoc } from 'firebase/firestore'
 import { useMemo, useRef, useState } from 'react'
-import { db, storage } from '../lib/firebase'
+import { db, storage, functions } from '../lib/firebase'
+import { httpsCallable } from 'firebase/functions'
 
 type Props = {
   uid: string
@@ -40,6 +41,15 @@ export function WorkoutContextEditor({ uid, workoutId, initialText }: Props) {
       await updateDoc(workoutRef, {
         context: { text: text.trim(), updatedAt: serverTimestamp() },
       })
+
+      // Rebuild persona after workout enrichment
+      try {
+        const fn = httpsCallable(functions, 'buildFitnessPersona')
+        await fn()
+      } catch (e) {
+        // don't block the user — surface non-fatal errors
+        console.warn('buildFitnessPersona failed', e)
+      }
     } catch (e) {
       setError(errorMessage(e))
     } finally {
@@ -99,6 +109,14 @@ export function WorkoutContextEditor({ uid, workoutId, initialText }: Props) {
           updatedAt: serverTimestamp(),
         },
       })
+
+      // Rebuild persona after workout enrichment
+      try {
+        const fn = httpsCallable(functions, 'buildFitnessPersona')
+        await fn()
+      } catch (e) {
+        console.warn('buildFitnessPersona failed', e)
+      }
 
       setRecording(false)
       mediaRecorderRef.current = null
