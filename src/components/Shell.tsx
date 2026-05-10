@@ -11,10 +11,12 @@ export function Shell() {
       <header className="header">
         <div className="brand">
           <Link to={user ? '/app' : '/login'} className="brandLink">
-            <div className="brandTitle">Flux</div>
+            <div className="logo">
+              FLUX<span>.</span>
+            </div>
           </Link>
           <p className="brandTagline">
-            Calm personalized training for strength, cardio, classes, and more.
+            Thoughtful, personalized training guidance.
           </p>
         </div>
 
@@ -30,6 +32,7 @@ export function Shell() {
               <button
                 type="button"
                 className="secondary"
+                style={{ minHeight: 'auto', padding: '6px 14px', fontSize: '13px' }}
                 onClick={() => void signOut(auth)}
               >
                 Sign out

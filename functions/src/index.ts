@@ -9,6 +9,23 @@ import * as path from 'node:path'
 
 initializeApp()
 
+// Structured recommendation types
+export type WorkoutOption = {
+  title: string
+  duration: string
+  intensity: string
+  warmup: string
+  mainSet: string
+  cooldown: string
+  why: string[]
+  type?: string
+}
+
+export type RecommendationResponse = {
+  options: WorkoutOption[]
+  safetyChecks: string[]
+}
+
 const db = getFirestore()
 
 const geminiApiKey = defineSecret('GEMINI_API_KEY')
@@ -99,7 +116,7 @@ function parseAndVerifyState(state: string, secret: string): { uid: string } {
   return { uid: payload.uid }
 }
 
-export const geminiPrompt = onCall({ secrets: [geminiApiKey] }, async (req) => {
+export const geminiPrompt = onCall({ secrets: [geminiApiKey], invoker: 'public' }, async (req) => {
   if (!req.auth) {
     throw new HttpsError('unauthenticated', 'Sign in to call Gemini')
   }
@@ -123,7 +140,7 @@ export const geminiPrompt = onCall({ secrets: [geminiApiKey] }, async (req) => {
 })
 
 export const stravaAuthUrl = onCall(
-  { secrets: [stravaClientId, stravaStateSecret], cors: true },
+  { secrets: [stravaClientId, stravaStateSecret], cors: true, invoker: 'public' },
   async (req) => {
     if (!req.auth) {
       throw new HttpsError('unauthenticated', 'Sign in to connect Strava')
@@ -295,7 +312,11 @@ async function getStravaAccessToken(uid: string): Promise<string> {
 
   if (!resp.ok) {
     const body = await resp.text().catch(() => '')
-    throw new HttpsError('internal', `Strava refresh failed: ${resp.status} ${body}`)
+    throw new HttpsError('unavailable', 'Strava token refresh failed', {
+      status: resp.status,
+      body,
+      step: 'token_refresh',
+    })
   }
 
   const json = (await resp.json()) as {
@@ -325,51 +346,111 @@ async function buildFitnessPersonaText(uid: string): Promise<string> {
   const workoutsSnap = await db
     .collection(`users/${uid}/workouts`)
     .orderBy('strava.startDate', 'desc')
-    .limit(30)
+    .limit(50)
     .get()
 
   const workouts = workoutsSnap.docs.map((d) => {
+    // Mapping Strava workout data
     const data = (d.data() ?? {}) as {
-      strava?: {
-        type?: unknown
-        name?: unknown
-        startDate?: unknown
-        distance?: unknown
-        elapsedTime?: unknown
-      }
+      strava?: Record<string, unknown>
       context?: { text?: unknown }
     }
 
     return {
       type: typeof data.strava?.type === 'string' ? data.strava.type : null,
+      sportType: typeof data.strava?.sportType === 'string' ? data.strava.sportType : null,
       name: typeof data.strava?.name === 'string' ? data.strava.name : null,
       startDate: typeof data.strava?.startDate === 'string' ? data.strava.startDate : null,
       distance: typeof data.strava?.distance === 'number' ? data.strava.distance : null,
       elapsedTime: typeof data.strava?.elapsedTime === 'number' ? data.strava.elapsedTime : null,
+      movingTime: typeof data.strava?.movingTime === 'number' ? data.strava.movingTime : null,
+      elevationGain: typeof data.strava?.elevationGain === 'number' ? data.strava.elevationGain : null,
+      avgSpeed: typeof data.strava?.avgSpeed === 'number' ? data.strava.avgSpeed : null,
+      maxSpeed: typeof data.strava?.maxSpeed === 'number' ? data.strava.maxSpeed : null,
+      avgCadence: typeof data.strava?.avgCadence === 'number' ? data.strava.avgCadence : null,
+      avgHR: typeof data.strava?.avgHR === 'number' ? data.strava.avgHR : null,
+      maxHR: typeof data.strava?.maxHR === 'number' ? data.strava.maxHR : null,
+      avgPower: typeof data.strava?.avgPower === 'number' ? data.strava.avgPower : null,
+      weightedAvgPower: typeof data.strava?.weightedAvgPower === 'number' ? data.strava.weightedAvgPower : null,
+      kilojoules: typeof data.strava?.kilojoules === 'number' ? data.strava.kilojoules : null,
+      sufferScore: typeof data.strava?.sufferScore === 'number' ? data.strava.sufferScore : null,
+      trainer: typeof data.strava?.trainer === 'boolean' ? data.strava.trainer : null,
+      manual: typeof data.strava?.manual === 'boolean' ? data.strava.manual : null,
+      deviceName: typeof data.strava?.deviceName === 'string' ? data.strava.deviceName : null,
       contextText: typeof data.context?.text === 'string' ? data.context.text : null,
     }
   })
+
+  // Compute patterns by modality
+  const patterns = computeWorkoutPatterns(workouts)
 
   const apiKey = requireGeminiKey()
   const genAI = new GoogleGenerativeAI(apiKey)
   const model = genAI.getGenerativeModel({ model: 'gemini-3.1-flash-lite' })
 
   const prompt =
-    `You are Flux, a calm personal trainer in the user's pocket.\n` +
-    `Write a short fitness persona from goal, workout patterns, and context notes.\n` +
-    `Be concrete and practical. Keep it under 180 words.\n\n` +
+    `You are Flux, a calm personal trainer analyzing a user's fitness profile.\n` +
+    `Synthesize a concise fitness persona from their goal, workout patterns, and current state.\n` +
+    `Keep output under 200 words. Be concrete, specific, and actionable.\n\n` +
     `Goal:\n${goalText || '(not set)'}\n\n` +
-    `Recent workouts (JSON):\n${JSON.stringify(workouts, null, 2)}\n\n` +
-    `Output format:\n` +
-    `- Athlete profile (3 bullets)\n` +
-    `- Constraints and risks (0-3 bullets)\n` +
-    `- Coaching focus for next 14 days (3 bullets)`
+    `Workout patterns (compressed):\n${patterns}\n\n` +
+    `Recent workouts (JSON):\n${JSON.stringify(workouts.slice(0, 15), null, 2)}\n\n` +
+    `Output three sections:\n` +
+    `1. Athlete Profile: Current modalities, typical effort zones, key stats (3 bullets)\n` +
+    `2. Constraints & Risks: Recovery patterns, high-fatigue indicators, equipment/time limits (2-3 bullets)\n` +
+    `3. Next 14 Days Focus: Progressive priorities, underutilized systems, intensity/volume balance (3 bullets)`
 
   const result = await model.generateContent(prompt)
   return result.response.text().trim()
 }
 
-export const buildFitnessPersona = onCall({ secrets: [geminiApiKey] }, async (req) => {
+function computeWorkoutPatterns(workouts: Array<Record<string, unknown>>): string {
+  const byType: Record<string, { count: number; totalTime: number; totalDist: number; avgPower: number[]; avgHR: number[]; sufferScores: number[] }> = {}
+
+  for (const w of workouts) {
+    const type = (w.type as string | null) || (w.sportType as string | null) || 'Unknown'
+    if (!byType[type]) {
+      byType[type] = { count: 0, totalTime: 0, totalDist: 0, avgPower: [], avgHR: [], sufferScores: [] }
+    }
+
+    byType[type].count++
+    byType[type].totalTime += (w.movingTime as number | null) || 0
+    byType[type].totalDist += ((w.distance as number | null) || 0) / 1000 // convert to km
+
+    if (typeof w.avgPower === 'number' && w.avgPower > 0) byType[type].avgPower.push(w.avgPower as number)
+    if (typeof w.avgHR === 'number' && w.avgHR > 0) byType[type].avgHR.push(w.avgHR as number)
+    if (typeof w.sufferScore === 'number' && w.sufferScore > 0) byType[type].sufferScores.push(w.sufferScore as number)
+  }
+
+  const lines: string[] = []
+  for (const [type, stats] of Object.entries(byType).sort((a, b) => b[1].count - a[1].count)) {
+    const avgTime = Math.round(stats.totalTime / stats.count / 60)
+    const avgDist = (stats.totalDist / stats.count).toFixed(1)
+    const avgPwr = stats.avgPower.length > 0 ? Math.round(stats.avgPower.reduce((a, b) => a + b) / stats.avgPower.length) : null
+    const avgHR = stats.avgHR.length > 0 ? Math.round(stats.avgHR.reduce((a, b) => a + b) / stats.avgHR.length) : null
+    const avgSufferScore = stats.sufferScores.length > 0 ? Math.round(stats.sufferScores.reduce((a, b) => a + b) / stats.sufferScores.length) : null
+
+    const parts = [
+      `${type}:`,
+      `${stats.count}x`,
+      `avg ${avgTime}min`,
+      `${avgDist}km`,
+      avgPwr ? `${avgPwr}W` : null,
+      avgHR ? `${avgHR}bpm` : null,
+      avgSufferScore ? `suffer ${avgSufferScore}` : null,
+    ]
+      .filter(Boolean)
+      .join(' ')
+
+    lines.push(parts)
+  }
+
+  return lines.join('\n')
+}
+
+export const buildFitnessPersona = onCall(
+  { secrets: [geminiApiKey], invoker: 'public' },
+  async (req) => {
   try {
     if (!req.auth) throw new HttpsError('unauthenticated', 'Sign in')
     const text = await buildFitnessPersonaText(req.auth.uid)
@@ -387,9 +468,12 @@ export const buildFitnessPersona = onCall({ secrets: [geminiApiKey] }, async (re
     if (e instanceof HttpsError) throw e
     throw new HttpsError('internal', (e as Error)?.message || 'Unknown error')
   }
-})
+  },
+)
 
-export const recommendNextWorkout = onCall({ secrets: [geminiApiKey] }, async (req) => {
+export const recommendNextWorkout = onCall(
+  { secrets: [geminiApiKey], invoker: 'public' },
+  async (req) => {
   try {
     if (!req.auth) throw new HttpsError('unauthenticated', 'Sign in')
 
@@ -419,6 +503,11 @@ export const recommendNextWorkout = onCall({ secrets: [geminiApiKey] }, async (r
           startDate?: unknown
           distance?: unknown
           elapsedTime?: unknown
+          movingTime?: unknown
+          avgHR?: unknown
+          avgPower?: unknown
+          trainer?: unknown
+          manual?: unknown
         }
         context?: { text?: unknown }
       }
@@ -429,6 +518,11 @@ export const recommendNextWorkout = onCall({ secrets: [geminiApiKey] }, async (r
         startDate: typeof data.strava?.startDate === 'string' ? data.strava.startDate : null,
         distance: typeof data.strava?.distance === 'number' ? data.strava.distance : null,
         elapsedTime: typeof data.strava?.elapsedTime === 'number' ? data.strava.elapsedTime : null,
+        movingTime: typeof data.strava?.movingTime === 'number' ? data.strava.movingTime : null,
+        avgHR: typeof data.strava?.avgHR === 'number' ? data.strava.avgHR : null,
+        avgPower: typeof data.strava?.avgPower === 'number' ? data.strava.avgPower : null,
+        trainer: typeof data.strava?.trainer === 'boolean' ? data.strava.trainer : null,
+        manual: typeof data.strava?.manual === 'boolean' ? data.strava.manual : null,
         contextText: typeof data.context?.text === 'string' ? data.context.text : null,
       }
     })
@@ -438,37 +532,192 @@ export const recommendNextWorkout = onCall({ secrets: [geminiApiKey] }, async (r
     const contextCount = workouts.filter((w) => Boolean(w.contextText)).length
 
     const prompt =
-      `You are Flux, a calm personal trainer in the user's pocket.\n` +
-      `Use guidance, goal, persona, and recent workouts to recommend 1-3 next sessions.\n` +
-      `Prioritize safety, progression, and consistency.\n` +
-      `Do not overprescribe intensity after heavy recent load or fatigue signals.\n\n` +
+      `You are Flux, a evidence-based personal trainer providing professional guidance.\n` +
+      `Core principles: progressive overload, periodization, autoregulation (RPE), fatigue management, recovery prioritization.\n\n` +
+      `TRAINING PRINCIPLES:\n` +
+      `- Use RPE (Rate of Perceived Exertion 1-10) to guide intensity; target 1-3 RIR (reps in reserve)\n` +
+      `- Apply progressive overload: increase load, volume (sets x reps), or complexity systematically\n` +
+      `- Periodization: vary intensity/volume weekly to prevent plateaus and manage fatigue\n` +
+      `- Autoregulation: adjust based on daily readiness and recent load patterns\n` +
+      `- Fatigue management: monitor recent load (duration, intensity, frequency). After heavy/long sessions, reduce next load\n` +
+      `- Recovery: prioritize sleep, nutrition (1.6-2.2g protein/kg), structured rest days, and periodic deloads (~5-6 weeks)\n` +
+      `- Safety first: avoid overprescribing intensity when fatigue signals detected; use proper form over heavy weight\n\n` +
       `WORKOUT_GUIDANCE.TXT:\n${guidance || '(missing guidance)'}\n\n` +
       `Goal:\n${goalText || '(not set)'}\n\n` +
       `Fitness persona (if any):\n${persona || '(not built yet)'}\n\n` +
       `Context coverage: ${contextCount} workouts include user notes.\n\n` +
       `Recent workouts (JSON):\n${JSON.stringify(workouts, null, 2)}\n\n` +
-      `Return exactly this format:\n` +
-      `Option 1 (best):\n- Title\n- Duration\n- Intensity (RPE)\n- Warmup\n- Main set\n- Cooldown\n- Why (2 bullets)\n\n` +
-      `Option 2 (optional): same format\n\n` +
-      `Option 3 (optional): same format\n\n` +
-      `Then add:\n` +
-      `Safety checks:\n- 2 concise bullets based on this user's recent history\n`
+      `RECOMMENDATION STRATEGY:\n` +
+      `1. Assess recent load: sum duration/intensity of last 3-5 workouts\n` +
+      `2. Check for fatigue signals: user notes mentioning soreness, fatigue, or reduced energy\n` +
+      `3. Apply periodization: if recent intensity high, recommend moderate/recovery; if recent load light, recommend challenging session\n` +
+      `4. Use RPE guidance: specify intensity as "RPE X/10" (easier sessions RPE 5-6, moderate 6-7, challenging 7-8+)\n` +
+      `5. Include warm-up/cool-down appropriate to intensity\n` +
+      `6. Provide reasoning: why this workout now (progressive vs recovery, modality, energy system)\n` +
+      `7. Safety emphasis: highlight any cautions based on recent history (e.g., "reduce intensity if soreness high")\n` +
+      `8. Set workout type: choose from "run", "ride", "swim", or other appropriate activity\n` +
+      `9. TIE TIMINGS TO PATTERNS: Analyze historical data by modality (runs vs rides vs swims vs weights):\n` +
+      `   - If user has logged multiple runs: check avg duration, typical effort patterns, recovery needs between runs\n` +
+      `   - If user has logged multiple swims: infer pool/open water preference, stroke preferences, typical distances\n` +
+      `   - If user has logged strength: identify primary lifts, typical session duration, volume/intensity patterns\n` +
+      `   - Use past workout durations as anchors (e.g., "last 5K run was 28min, recommend pace based on this")\n` +
+      `   - Suggest timings that fit their historical patterns AND progressive overload (e.g., +5-10% if appropriate)\n\n` +
+      `Return ONLY valid JSON (no markdown, no extra text) matching this schema:\n` +
+      `{\n` +
+      `  "options": [\n` +
+      `    {\n` +
+      `      "title": "Clear, energizing title",\n` +
+      `      "type": "run",\n` +
+      `      "duration": "45 minutes",\n` +
+      `      "intensity": "RPE 6-7 (Moderate) - sustainable effort",\n` +
+      `      "warmup": "10 min easy jogging + dynamic stretches",\n` +
+      `      "mainSet": "4x2min at 85% max pace with 90sec jog recovery (RPE 7)",\n` +
+      `      "cooldown": "5 min easy walk + 2 min static stretching",\n` +
+      `      "why": ["Builds aerobic capacity without excessive fatigue", "Allows recovery if recent volume was high"]\n` +
+      `    }\n` +
+      `  ],\n` +
+      `  "safetyChecks": ["Reduce intensity by 1 RPE level if feeling fatigued", "Monitor heart rate; end if HR doesn't drop post-effort"]\n` +
+      `}\n\n` +
+      `Generate 1-3 workout options balancing progressive overload and recovery. Include workout type. Safety checks must be specific to their recent history.`
 
     const genAI = new GoogleGenerativeAI(apiKey)
     const model = genAI.getGenerativeModel({ model: 'gemini-3.1-flash-lite' })
     const result = await model.generateContent(prompt)
-    const text = result.response.text()
+    const responseText = result.response.text()
+    
+    // Parse the JSON response
+    let parsed: RecommendationResponse
+    try {
+      parsed = JSON.parse(responseText)
+    } catch {
+      // If parsing fails, return error with context
+      throw new HttpsError(
+        'internal',
+        `Failed to parse recommendation. Raw: ${responseText.substring(0, 200)}`
+      )
+    }
+    
+    // Validate the response structure
+    if (!parsed.options || !Array.isArray(parsed.options) || parsed.options.length === 0) {
+      throw new HttpsError('internal', 'Invalid recommendation structure: missing options')
+    }
+    
+    if (!parsed.safetyChecks || !Array.isArray(parsed.safetyChecks)) {
+      throw new HttpsError('internal', 'Invalid recommendation structure: missing safetyChecks')
+    }
 
-    return { text }
+    return parsed
   } catch (e) {
     console.error('recommendNextWorkout failed', e)
+    if (e instanceof HttpsError) throw e
+    throw new HttpsError('internal', (e as Error)?.message || 'Unknown error')
+  }
+  },
+)
+
+export const refineRecommendation = onCall({ secrets: [geminiApiKey] }, async (req) => {
+  try {
+    if (!req.auth) throw new HttpsError('unauthenticated', 'Sign in')
+
+    const { userMessage, conversationHistory } = req.data as {
+      userMessage?: unknown
+      conversationHistory?: unknown
+    }
+
+    if (typeof userMessage !== 'string' || !userMessage.trim()) {
+      throw new HttpsError('invalid-argument', 'User message required')
+    }
+
+    if (!Array.isArray(conversationHistory)) {
+      throw new HttpsError('invalid-argument', 'Conversation history must be an array')
+    }
+
+    // Validate conversation history format
+    const validHistory = conversationHistory.filter((msg) => {
+      return (
+        typeof msg === 'object' &&
+        msg !== null &&
+        typeof (msg as Record<string, unknown>).role === 'string' &&
+        typeof (msg as Record<string, unknown>).content === 'string'
+      )
+    })
+
+    const apiKey = requireGeminiKey()
+
+    // Build conversation context for the model
+    const conversationContext = validHistory
+      .map((msg: Record<string, unknown>) => `${msg.role}: ${msg.content}`)
+      .join('\n')
+
+    const prompt =
+      `You are Flux, a professional personal trainer refining recommendations based on user feedback.\n` +
+      `Apply evidence-based principles: progressive overload, periodization, RPE-based autoregulation, fatigue management.\n\n` +
+      `KEY GUIDANCE:\n` +
+      `- RPE scale: 1-3 (very easy), 4-5 (easy), 6-7 (moderate), 8-9 (hard), 10 (max effort)\n` +
+      `- Time constraints: if user says "30 min", focus quality over volume; respect their availability\n` +
+      `- Equipment: adapt exercises to available tools (no equipment, dumbbells, gym, outdoor)\n` +
+      `- Fatigue signals: if user mentions soreness/tiredness, suggest active recovery or reduced intensity\n` +
+      `- Progressive: if user wants harder, increase load/volume/intensity; if easier, reduce RPE by 1-2 levels\n` +
+      `- Recovery: emphasize sleep, nutrition, form over ego-lifting\n` +
+      `- Timing patterns: reference historical workout durations and modality-specific patterns to anchor recommendations\n` +
+      `  (e.g., if they typically run 30-40min, suggest within that range unless they explicitly ask differently)\n\n` +
+      `Conversation history:\n${conversationContext}\n\n` +
+      `New constraint/question from user: ${userMessage}\n\n` +
+      `Adjust the recommendation to honor the user's input while maintaining training principles.\n` +
+      `Be specific about RPE levels, durations, and why the adjustment makes sense for their goals, current state, and historical patterns.\n\n` +
+      `Return ONLY valid JSON (no markdown, no extra text) matching this schema:\n` +
+      `{\n` +
+      `  "options": [\n` +
+      `    {\n` +
+      `      "title": "Clear, energizing title",\n` +
+      `      "type": "run",\n` +
+      `      "duration": "30 minutes",\n` +
+      `      "intensity": "RPE 6 (Moderate - sustainable effort)",\n` +
+      `      "warmup": "5 min easy warm-up specific to activity",\n` +
+      `      "mainSet": "Specific workout with reps/duration and RPE target",\n` +
+      `      "cooldown": "3 min easy cool-down + stretch",\n` +
+      `      "why": ["Respects time constraint while maintaining stimulus", "Accommodates user's stated preference/limitation"]\n` +
+      `    }\n` +
+      `  ],\n` +
+      `  "safetyChecks": ["Specific safety note based on their situation", "Adherence tip relevant to their constraint"]\n` +
+      `}\n\n` +
+      `If user wants harder, increase RPE 1-2 levels. If easier/shorter, reduce volume or intensity. Always include workout type. Respect equipment/time limits.`
+
+    const genAI = new GoogleGenerativeAI(apiKey)
+    const model = genAI.getGenerativeModel({ model: 'gemini-3.1-flash-lite' })
+    const result = await model.generateContent(prompt)
+    const responseText = result.response.text()
+
+    // Parse the JSON response
+    let parsed: RecommendationResponse
+    try {
+      parsed = JSON.parse(responseText)
+    } catch {
+      throw new HttpsError(
+        'internal',
+        `Failed to parse refined recommendation. Raw: ${responseText.substring(0, 200)}`
+      )
+    }
+
+    // Validate the response structure
+    if (!parsed.options || !Array.isArray(parsed.options) || parsed.options.length === 0) {
+      throw new HttpsError('internal', 'Invalid recommendation structure: missing options')
+    }
+
+    if (!parsed.safetyChecks || !Array.isArray(parsed.safetyChecks)) {
+      throw new HttpsError('internal', 'Invalid recommendation structure: missing safetyChecks')
+    }
+
+    return parsed
+  } catch (e) {
+    console.error('refineRecommendation failed', e)
     if (e instanceof HttpsError) throw e
     throw new HttpsError('internal', (e as Error)?.message || 'Unknown error')
   }
 })
 
 export const stravaSyncRecent = onCall(
-  { secrets: [stravaClientId, stravaClientSecret], cors: true },
+  { secrets: [stravaClientId, stravaClientSecret, geminiApiKey], cors: true, invoker: 'public' },
   async (req) => {
     try {
       if (!req.auth) throw new HttpsError('unauthenticated', 'Sign in')
@@ -486,10 +735,18 @@ export const stravaSyncRecent = onCall(
 
       if (!resp.ok) {
         const body = await resp.text().catch(() => '')
-        throw new HttpsError('internal', `Strava activities failed: ${resp.status} ${body}`)
+        throw new HttpsError('unavailable', 'Strava activities request failed', {
+          status: resp.status,
+          body,
+          step: 'activities_fetch',
+        })
       }
 
-      const activities = (await resp.json()) as Array<Record<string, unknown>>
+      const activitiesJson = (await resp.json()) as unknown
+      if (!Array.isArray(activitiesJson)) {
+        throw new HttpsError('data-loss', 'Strava activities response had invalid shape')
+      }
+      const activities = activitiesJson as Array<Record<string, unknown>>
       let upserted = 0
 
       const batch = db.batch()
@@ -505,11 +762,34 @@ export const stravaSyncRecent = onCall(
             strava: {
               id,
               type: typeof a.type === 'string' ? a.type : null,
+              sportType: typeof a.sport_type === 'string' ? a.sport_type : null,
               name: typeof a.name === 'string' ? a.name : null,
               startDate: typeof a.start_date === 'string' ? a.start_date : null,
               elapsedTime: typeof a.elapsed_time === 'number' ? a.elapsed_time : null,
               movingTime: typeof a.moving_time === 'number' ? a.moving_time : null,
               distance: typeof a.distance === 'number' ? a.distance : null,
+              elevationGain: typeof a.total_elevation_gain === 'number' ? a.total_elevation_gain : null,
+              avgSpeed: typeof a.average_speed === 'number' ? a.average_speed : null,
+              maxSpeed: typeof a.max_speed === 'number' ? a.max_speed : null,
+              avgCadence: typeof a.average_cadence === 'number' ? a.average_cadence : null,
+              avgHR: typeof a.average_heartrate === 'number' ? a.average_heartrate : null,
+              maxHR: typeof a.max_heartrate === 'number' ? a.max_heartrate : null,
+              avgPower: typeof a.average_watts === 'number' ? a.average_watts : null,
+              weightedAvgPower: typeof a.weighted_average_watts === 'number' ? a.weighted_average_watts : null,
+              maxPower: typeof a.max_watts === 'number' ? a.max_watts : null,
+              kilojoules: typeof a.kilojoules === 'number' ? a.kilojoules : null,
+              sufferScore: typeof a.suffer_score === 'number' ? a.suffer_score : null,
+              calories: typeof a.calories === 'number' ? a.calories : null,
+              trainer: typeof a.trainer === 'boolean' ? a.trainer : null,
+              commute: typeof a.commute === 'boolean' ? a.commute : null,
+              manual: typeof a.manual === 'boolean' ? a.manual : null,
+              private: typeof a.private === 'boolean' ? a.private : null,
+              deviceName: typeof a.device_name === 'string' ? a.device_name : null,
+              hasHeartrate: typeof a.has_heartrate === 'boolean' ? a.has_heartrate : null,
+              prCount: typeof a.pr_count === 'number' ? a.pr_count : null,
+              achievementCount: typeof a.achievement_count === 'number' ? a.achievement_count : null,
+              kudosCount: typeof a.kudos_count === 'number' ? a.kudos_count : null,
+              commentCount: typeof a.comment_count === 'number' ? a.comment_count : null,
             },
             updatedAt: FieldValue.serverTimestamp(),
             createdAt: FieldValue.serverTimestamp(),

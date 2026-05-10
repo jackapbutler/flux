@@ -25,25 +25,32 @@ export function Login() {
   const nav = useNavigate()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+  const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   const loginEmail = async () => {
     try {
+      setLoading(true)
       setError(null)
       await signInWithEmailAndPassword(auth, email.trim(), password)
       nav('/onboarding', { replace: true })
     } catch (e) {
       setError(formatAuthError(e))
+    } finally {
+      setLoading(false)
     }
   }
 
   const loginGoogle = async () => {
     try {
+      setLoading(true)
       setError(null)
       await signInWithPopup(auth, googleProvider)
       nav('/onboarding', { replace: true })
     } catch (e) {
       setError(formatAuthError(e))
+    } finally {
+      setLoading(false)
     }
   }
 
@@ -57,8 +64,13 @@ export function Login() {
         </p>
 
         <div className="stack" style={{ marginTop: 14 }}>
-          <button type="button" className="primary" onClick={() => void loginGoogle()}>
-            Continue with Google
+          <button
+            type="button"
+            className="primary"
+            onClick={() => void loginGoogle()}
+            disabled={loading}
+          >
+            {loading ? 'Signing in...' : 'Continue with Google'}
           </button>
 
           <div className="dividerText">
@@ -72,6 +84,7 @@ export function Login() {
               onChange={(e) => setEmail(e.target.value)}
               autoComplete="email"
               inputMode="email"
+              disabled={loading}
             />
           </label>
           <label className="field">
@@ -81,10 +94,16 @@ export function Login() {
               onChange={(e) => setPassword(e.target.value)}
               type="password"
               autoComplete="current-password"
+              disabled={loading}
             />
           </label>
-          <button type="button" className="secondary" onClick={() => void loginEmail()}>
-            Sign in
+          <button
+            type="button"
+            className="secondary"
+            onClick={() => void loginEmail()}
+            disabled={loading}
+          >
+            {loading ? 'Signing in...' : 'Sign in'}
           </button>
 
           {error ? (

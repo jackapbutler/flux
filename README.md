@@ -1,131 +1,91 @@
-# Firebase Starter (React + Vite)
+# FLUX.
+### Thoughtful, personalized AI training guidance.
 
-A tiny starter pack for Firebase Web:
-- Firebase Auth (Google + email/password)
-- Firestore (user profile + Strava workouts)
-- Hosting + Functions (Gemini + Strava OAuth)
-- Config via Vite env vars (`.env`)
+Flux is a next-generation AI personal trainer that bridges the gap between raw data and actionable guidance. By synchronizing deeply with your Strava history and analyzing it through evidence-based training principles, Flux provides calm, professional, and highly personalized workout recommendations tailored to your specific goals and recent load.
 
-## 1) Configure Firebase Auth
+---
 
-In the Firebase console:
-1. **Authentication → Sign-in method**: enable **Google** and/or **Email/Password**
-2. **Authentication → Settings → Authorized domains**: add:
-   - `localhost` (local dev)
-   - `YOUR_PROJECT_ID.web.app`
-   - `YOUR_PROJECT_ID.firebaseapp.com`
+## 🌟 Key Features
 
-If you see `auth/configuration-not-found` when clicking “Continue with Google”, it almost always means the **Google provider isn’t enabled** yet.
+- **Deep Strava Integration:** Pulls comprehensive activity data including heart rate zones, power distribution, suffer scores, and device-specific metrics.
+- **Scientific Coaching:** Guided by evidence-based principles like polarized training (80/20), progressive overload, and autoregulation (RPE).
+- **Background AI Intelligence:** Flux builds a high-fidelity "digital twin" of your fitness persona in the background, ensuring recommendations are context-aware without bloating the UI.
+- **Voice & Text Context:** Add short verbal or text notes to your sessions (e.g., "slept poorly", "knee feels tight") to allow the AI to intelligently adjust your next plan.
+- **Serene Visual Experience:** A modern, airy, and inviting interface designed to feel like a supportive training partner rather than a clinical tool.
 
-## 2) Configure Firestore
+---
 
-In the Firebase console:
-1. **Firestore Database**: create a database
+## 🚀 Getting Started
 
-## 2) Set env vars
+### 1) Prerequisites
+- A Firebase project (Auth, Firestore, Hosting, Functions).
+- A Strava Developer account and API application.
+- A Google Gemini API key.
 
-Copy `.env.example` → `.env` and fill values from Firebase Console → Project settings → Your apps → Web app.
+### 2) Configuration
 
-> This repo includes a `.env` for your provided config, but `.env` is gitignored so you can safely customize per machine.
+#### Local Env
+Copy `.env.example` → `.env` and fill in your Firebase configuration values.
 
-## 3) Run
-
-```bash
-npm install
-npm run dev
-```
-
-Open http://localhost:5173
-
-## Optional: Emulators
-
-If you use the Firebase Emulator Suite, set:
-
-```env
-VITE_USE_EMULATORS=true
-```
-
-…and adjust host/ports in `.env` as needed.
-
-## Gemini (callable Cloud Function)
-
-This starter includes:
-- `geminiPrompt` (callable): freeform prompt -> text
-- `recommendNextWorkout` (callable): reads your goal + recent workouts and returns a calm next-workout plan
-
-Gemini is called server-side so your API key is **not** exposed in the browser.
-
-## Strava connect + sync
-
-If “Sync Strava” fails with `internal`, check the full error message (it now includes Strava HTTP status/body) and verify `STRAVA_CLIENT_ID`, `STRAVA_CLIENT_SECRET` are set as Functions secrets.
-
-This repo includes:
-- callable `stravaAuthUrl` (returns the Strava authorize URL)
-- HTTPS endpoint `stravaCallback` at `/api/strava/callback`
-- callable `stravaSyncRecent` (pulls last ~30 activities into Firestore)
-
-You must create a Strava developer app and then set these Firebase Functions secrets:
+#### Firebase Secrets
+Set the following secrets for your Cloud Functions:
 
 ```bash
+# Strava Integration
 firebase functions:secrets:set STRAVA_CLIENT_ID
 firebase functions:secrets:set STRAVA_CLIENT_SECRET
 firebase functions:secrets:set STRAVA_STATE_SECRET
-```
 
-Optionally set the Functions param `APP_BASE_URL` (only needed if you’re not using the default `https://<project>.web.app` domain):
-
-```bash
-firebase functions:params:set APP_BASE_URL "https://your-domain.example"
-```
-
-Setup:
-
-```bash
-npm install -g firebase-tools
-firebase login
-cd functions
-npm install
-cd ..
+# AI Intelligence
 firebase functions:secrets:set GEMINI_API_KEY
 ```
 
-For local dev:
-
-1) Put a local-only Gemini key in `functions/.env` (this file is gitignored):
-
-```env
-GEMINI_API_KEY=YOUR_KEY
-```
-
-2) In one terminal, start emulators:
+### 3) Installation & Development
 
 ```bash
+# Install dependencies
+npm install
+cd functions && npm install && cd ..
+
+# Start Firebase Emulators
 firebase emulators:start
-```
 
-3) In another terminal, set `VITE_USE_EMULATORS=true` in `.env`, then run:
-
-```bash
+# Start Vite dev server (set VITE_USE_EMULATORS=true in .env)
 npm run dev
 ```
 
-## Deploy (Hosting + Firestore rules + Storage + Functions)
+---
 
-This repo includes `firebase.json`, `.firebaserc`, `firestore.rules`, `storage.rules`, and a `functions/` directory.
+## 🧬 Scientific Foundation
 
-```bash
-npm run build
-npx -y firebase-tools@latest deploy --only firestore:rules,storage,functions,hosting
-```
+Flux isn't just a wrapper for an LLM; it's grounded in a specific set of guidance principles (defined in `functions/workout_guidance.txt`):
 
-If you only changed Functions:
+1. **Safety First:** Prioritizes injury prevention and sustainability over heroics.
+2. **Polarized Training:** Biases toward an 80/20 split of easy and hard efforts.
+3. **Autoregulation:** Uses RPE (1-10) and user context to adjust intensity dynamically.
+4. **Fatigue Management:** Monitors recent load patterns to prevent overtraining and suggest recovery.
 
-```bash
-npx -y firebase-tools@latest deploy --only functions
-```
+---
 
-## What to customize next
+## 🎨 Branding & Aesthetics
 
-- Change the Firestore collection path (`users/<uid>/notes`) to match your app
-- Add Firestore security rules matching your data model
-- Add Storage, Functions, Messaging, etc.
+Flux is built with a **Serene Blue** and **Warm Amber** palette, utilizing soft radial gradients and glassmorphism to create a space that feels "alive" and airy. 
+
+- **Typography:** Uses a clean, bold sans-serif stack (Inter) for authority and readability.
+- **Geometry:** Large border radii (`16px-20px`) and layered shadows for a soft, approachable feel.
+- **Iconography:** Simplified, non-serious iconography (Emojis + Flux Spark ✦) to keep the experience human and encouraging.
+
+---
+
+## 🛠 Tech Stack
+
+- **Frontend:** React, Vite, TypeScript, Vanilla CSS.
+- **Backend:** Firebase Functions (v2), Firestore, Firebase Auth.
+- **AI:** Google Gemini (Generative AI).
+- **Integration:** Strava API (OAuth 2.0).
+
+---
+
+## 📄 License
+
+This project is for demonstration and personal use. Ensure you comply with Strava's API usage guidelines when deploying.

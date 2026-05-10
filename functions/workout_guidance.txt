@@ -2,12 +2,11 @@ Flux workout guidance (editable)
 
 Principles:
 - Be safe. Prioritize injury prevention, sleep, and consistency.
+- Use RPE (1–10), Heart Rate zones, and Power (if available).
 - Recommend 1–3 options; pick the best default based on recent load.
-- Keep it simple: warmup → main set → cooldown.
-- Use RPE (1–10) and clear duration.
-- Prefer polarised training unless the recent training suggests otherwise.
-- If the user has done hard sessions recently, bias toward easy/recovery.
-- Avoid big jumps in volume or intensity.
+- Prefer polarised training (80/20 easy/hard).
+- Monitor context for fatigue (soreness, fatigue, bad sleep) and auto-regulate.
+- Avoid big jumps (>10%) in volume or intensity.
 
 Style:
 - Calm, modern, concise. No hype.

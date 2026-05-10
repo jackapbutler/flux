@@ -6,13 +6,32 @@ import { useAuth } from '../lib/useAuth'
 import { db, functions } from '../lib/firebase'
 
 function errorMessage(err: unknown): string {
-  if (
-    err &&
-    typeof err === 'object' &&
-    'message' in err &&
-    typeof (err as { message?: unknown }).message === 'string'
-  ) {
-    return (err as { message: string }).message
+  if (err && typeof err === 'object') {
+    const message =
+      'message' in err && typeof (err as { message?: unknown }).message === 'string'
+        ? (err as { message: string }).message
+        : String(err)
+    const details =
+      'details' in err ? (err as { details?: unknown }).details : null
+    if (details && typeof details === 'object') {
+      const status =
+        'status' in details && typeof (details as { status?: unknown }).status === 'number'
+          ? (details as { status: number }).status
+          : null
+      const step =
+        'step' in details && typeof (details as { step?: unknown }).step === 'string'
+          ? (details as { step: string }).step
+          : null
+      const body =
+        'body' in details && typeof (details as { body?: unknown }).body === 'string'
+          ? (details as { body: string }).body
+          : null
+      const meta = [step ? `step=${step}` : null, status ? `status=${status}` : null, body]
+        .filter(Boolean)
+        .join(' | ')
+      return meta ? `${message}\n${meta}` : message
+    }
+    return message
   }
   return String(err)
 }
@@ -21,8 +40,17 @@ export function Onboarding() {
   const nav = useNavigate()
   const [params] = useSearchParams()
   const { user, profile } = useAuth()
-  const [goalText, setGoalText] = useState(profile?.goalText ?? '')
+  const [goalText, setGoalText] = useState('')
   const [saving, setSaving] = useState(false)
+
+  // Sync goalText from profile on load
+  useEffect(() => {
+    if (profile?.goalText && !goalText) {
+      setGoalText(profile.goalText)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [profile?.goalText])
+  const [goalSaved, setGoalSaved] = useState<string | null>(null)
   const [syncing, setSyncing] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -46,15 +74,20 @@ export function Onboarding() {
   }, [user])
 
   const saveGoal = async () => {
-    if (!userRef) return
+    if (!userRef) {
+      setError('You need to be signed in to save your goal.')
+      return
+    }
     try {
       setError(null)
+      setGoalSaved(null)
       setSaving(true)
       await setDoc(
         userRef,
         { goalText: goalText.trim(), updatedAt: serverTimestamp() },
         { merge: true },
       )
+      setGoalSaved('Goal saved')
     } catch (e) {
       setError(errorMessage(e))
     } finally {
@@ -133,13 +166,24 @@ export function Onboarding() {
           </label>
 
           <div className="row">
-            <button type="button" className="primary" onClick={() => void saveGoal()} disabled={saving}>
+            <button
+              type="button"
+              className="primary"
+              onClick={() => void saveGoal()}
+              disabled={saving}
+            >
               {saving ? 'Saving...' : 'Save goal'}
             </button>
-            <button type="button" className="secondary" onClick={() => nav('/app')}>
-              Skip for now
-            </button>
           </div>
+          {goalSaved ? <p className="muted">{goalSaved}</p> : null}
+          <button
+            type="button"
+            className="secondary"
+            onClick={() => nav('/app')}
+            disabled={saving}
+          >
+              Skip for now
+          </button>
         </div>
 
         <div className="card stack">

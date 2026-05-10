@@ -25,25 +25,32 @@ export function Signup() {
   const nav = useNavigate()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+  const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   const signupEmail = async () => {
     try {
+      setLoading(true)
       setError(null)
       await createUserWithEmailAndPassword(auth, email.trim(), password)
       nav('/onboarding', { replace: true })
     } catch (e) {
       setError(formatAuthError(e))
+    } finally {
+      setLoading(false)
     }
   }
 
   const signupGoogle = async () => {
     try {
+      setLoading(true)
       setError(null)
       await signInWithPopup(auth, googleProvider)
       nav('/onboarding', { replace: true })
     } catch (e) {
       setError(formatAuthError(e))
+    } finally {
+      setLoading(false)
     }
   }
 
@@ -60,8 +67,9 @@ export function Signup() {
             type="button"
             className="primary"
             onClick={() => void signupGoogle()}
+            disabled={loading}
           >
-            Continue with Google
+            {loading ? 'Connecting...' : 'Continue with Google'}
           </button>
 
           <div className="dividerText">
@@ -75,6 +83,7 @@ export function Signup() {
               onChange={(e) => setEmail(e.target.value)}
               autoComplete="email"
               inputMode="email"
+              disabled={loading}
             />
           </label>
           <label className="field">
@@ -85,10 +94,16 @@ export function Signup() {
               type="password"
               autoComplete="new-password"
               minLength={6}
+              disabled={loading}
             />
           </label>
-          <button type="button" className="secondary" onClick={() => void signupEmail()}>
-            Create account
+          <button
+            type="button"
+            className="secondary"
+            onClick={() => void signupEmail()}
+            disabled={loading}
+          >
+            {loading ? 'Creating...' : 'Create account'}
           </button>
 
           {error ? (

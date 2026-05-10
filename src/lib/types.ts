@@ -1,3 +1,4 @@
+// Types for Flux
 import type { Timestamp } from 'firebase/firestore'
 
 export type UserProfile = {
@@ -32,4 +33,19 @@ export type Workout = {
   }
   createdAt?: Timestamp
   updatedAt?: Timestamp
+}
+
+export type WorkoutOption = {
+  title: string
+  duration: string
+  intensity: string
+  warmup: string
+  mainSet: string
+  cooldown: string
+  why: string[]
+  type?: string
+}
+
+export type RecommendationResponse = {
+  options: WorkoutOption[]
 }
