@@ -100,9 +100,38 @@ export function WorkoutContextEditor({ uid, workoutId, initialText }: Props) {
       await uploadBytes(r, blob, { contentType: 'audio/webm' })
       const url = await getDownloadURL(r)
 
+      setStatus('Transcribing...')
+      const reader = new FileReader()
+      const base64Promise = new Promise<string>((resolve) => {
+        reader.onloadend = () => {
+          const base64 = (reader.result as string).split(',')[1]
+          resolve(base64)
+        }
+      })
+      reader.readAsDataURL(blob)
+      const audioBase64 = await base64Promise
+
+      const transcribeFn = httpsCallable<{ audio: string }, { transcription: string }>(
+        functions,
+        'transcribeWorkoutVoice',
+      )
+      const {
+        data: { transcription },
+      } = await transcribeFn({ audio: audioBase64 })
+
+      const newText = transcription
+        ? text.trim()
+          ? `${text.trim()}\n\n${transcription}`
+          : transcription
+        : text.trim()
+
+      if (transcription) {
+        setText(newText)
+      }
+
       await updateDoc(workoutRef, {
         context: {
-          text: text.trim(),
+          text: newText,
           voiceUrl: url,
           updatedAt: serverTimestamp(),
         },
@@ -152,7 +181,6 @@ export function WorkoutContextEditor({ uid, workoutId, initialText }: Props) {
 
       {error ? <div className="error">{error}</div> : null}
       {status ? <p className="muted">{status}</p> : null}
-      <p className="muted">Voice notes upload to your Firebase Storage bucket.</p>
     </div>
   )
 }

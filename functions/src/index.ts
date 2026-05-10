@@ -340,8 +340,9 @@ async function getStravaAccessToken(uid: string): Promise<string> {
 
 async function buildFitnessPersonaText(uid: string): Promise<string> {
   const userSnap = await db.doc(`users/${uid}`).get()
-  const userData = (userSnap.data() ?? {}) as { goalText?: unknown }
+  const userData = (userSnap.data() ?? {}) as { goalText?: unknown; fitnessPersonaText?: unknown }
   const goalText = typeof userData.goalText === 'string' ? userData.goalText.trim() : ''
+  const previousPersona = typeof userData.fitnessPersonaText === 'string' ? userData.fitnessPersonaText.trim() : ''
 
   const workoutsSnap = await db
     .collection(`users/${uid}/workouts`)
@@ -389,16 +390,20 @@ async function buildFitnessPersonaText(uid: string): Promise<string> {
   const model = genAI.getGenerativeModel({ model: 'gemini-3.1-flash-lite' })
 
   const prompt =
-    `You are Flux, a calm personal trainer analyzing a user's fitness profile.\n` +
-    `Synthesize a concise fitness persona from their goal, workout patterns, and current state.\n` +
+    `You are Flux, a calm personal trainer evolving a user's fitness persona.\n` +
+    `Your goal is to INCREMENTALLY UPDATE, APPEND, and OVERRIDE the existing persona based on new data.\n` +
     `Keep output under 200 words. Be concrete, specific, and actionable.\n\n` +
-    `Goal:\n${goalText || '(not set)'}\n\n` +
-    `Workout patterns (compressed):\n${patterns}\n\n` +
-    `Recent workouts (JSON):\n${JSON.stringify(workouts.slice(0, 15), null, 2)}\n\n` +
-    `Output three sections:\n` +
-    `1. Athlete Profile: Current modalities, typical effort zones, key stats (3 bullets)\n` +
-    `2. Constraints & Risks: Recovery patterns, high-fatigue indicators, equipment/time limits (2-3 bullets)\n` +
-    `3. Next 14 Days Focus: Progressive priorities, underutilized systems, intensity/volume balance (3 bullets)`
+    `PREVIOUS PERSONA (to be updated/refined):\n${previousPersona || '(no previous persona)'}\n\n` +
+    `NEW CONTEXT:\n` +
+    `- Goal: ${goalText || '(not set)'}\n` +
+    `- Recent patterns: ${patterns}\n` +
+    `- Recent workouts (JSON): ${JSON.stringify(workouts.slice(0, 10), null, 2)}\n\n` +
+    `INSTRUCTIONS:\n` +
+    `1. Maintain long-term insights from the previous persona that are still relevant.\n` +
+    `2. Override sections if new data shows a shift in behavior, modality, or fatigue levels.\n` +
+    `3. Append new observations from recent notes (contextText) or trends.\n` +
+    `4. Output three sections (Athlete Profile, Constraints & Risks, Next 14 Days Focus).\n\n` +
+    `Output the final updated persona.`
 
   const result = await model.generateContent(prompt)
   return result.response.text().trim()
@@ -492,7 +497,7 @@ export const recommendNextWorkout = onCall(
     const workoutsSnap = await db
       .collection(`users/${uid}/workouts`)
       .orderBy('strava.startDate', 'desc')
-      .limit(30)
+      .limit(10)
       .get()
 
     const workouts = workoutsSnap.docs.map((d) => {
@@ -544,8 +549,9 @@ export const recommendNextWorkout = onCall(
       `- Safety first: avoid overprescribing intensity when fatigue signals detected; use proper form over heavy weight\n\n` +
       `WORKOUT_GUIDANCE.TXT:\n${guidance || '(missing guidance)'}\n\n` +
       `Goal:\n${goalText || '(not set)'}\n\n` +
-      `Fitness persona (if any):\n${persona || '(not built yet)'}\n\n` +
-      `Context coverage: ${contextCount} workouts include user notes.\n\n` +
+      `LONG-TERM FITNESS PERSONA:\n${persona || '(not built yet)'}\n\n` +
+      `IMMEDIATE CONTEXT (Last 10 Workouts):\n` +
+      `Context coverage: ${contextCount}/10 workouts include user notes.\n` +
       `Recent workouts (JSON):\n${JSON.stringify(workouts, null, 2)}\n\n` +
       `RECOMMENDATION STRATEGY:\n` +
       `1. Assess recent load: sum duration/intensity of last 3-5 workouts\n` +
@@ -556,12 +562,13 @@ export const recommendNextWorkout = onCall(
       `6. Provide reasoning: why this workout now (progressive vs recovery, modality, energy system)\n` +
       `7. Safety emphasis: highlight any cautions based on recent history (e.g., "reduce intensity if soreness high")\n` +
       `8. Set workout type: choose from "run", "ride", "swim", or other appropriate activity\n` +
-      `9. TIE TIMINGS TO PATTERNS: Analyze historical data by modality (runs vs rides vs swims vs weights):\n` +
+      `9. NO SCHEDULING: Do not mention specific days (e.g., "tomorrow"), times of day, or make assumptions about the user's availability. Focus only on the workout recommendation itself.\n` +
+      `10. VOLUME & INTENSITY: Analyze historical data by modality (runs vs rides vs swims vs weights) to anchor recommendations:\n` +
       `   - If user has logged multiple runs: check avg duration, typical effort patterns, recovery needs between runs\n` +
       `   - If user has logged multiple swims: infer pool/open water preference, stroke preferences, typical distances\n` +
       `   - If user has logged strength: identify primary lifts, typical session duration, volume/intensity patterns\n` +
-      `   - Use past workout durations as anchors (e.g., "last 5K run was 28min, recommend pace based on this")\n` +
-      `   - Suggest timings that fit their historical patterns AND progressive overload (e.g., +5-10% if appropriate)\n\n` +
+      `   - Use past workout durations as anchors for volume (e.g., "last 5K run was 28min, recommend volume based on this")\n` +
+      `   - Suggest volume/intensity that fits their historical patterns AND progressive overload (e.g., +5-10% if appropriate)\n\n` +
       `Return ONLY valid JSON (no markdown, no extra text) matching this schema:\n` +
       `{\n` +
       `  "options": [\n` +
@@ -659,8 +666,10 @@ export const refineRecommendation = onCall({ secrets: [geminiApiKey] }, async (r
       `- Fatigue signals: if user mentions soreness/tiredness, suggest active recovery or reduced intensity\n` +
       `- Progressive: if user wants harder, increase load/volume/intensity; if easier, reduce RPE by 1-2 levels\n` +
       `- Recovery: emphasize sleep, nutrition, form over ego-lifting\n` +
-      `- Timing patterns: reference historical workout durations and modality-specific patterns to anchor recommendations\n` +
-      `  (e.g., if they typically run 30-40min, suggest within that range unless they explicitly ask differently)\n\n` +
+      `- NO SCHEDULING: Do not mention specific days (e.g., "tomorrow"), times of day, or make assumptions about the user's availability.\n` +
+      `- Volume & Intensity patterns: reference historical workout durations and modality-specific patterns to anchor recommendations\n` +
+      `  (e.g., if they typically run 30-40min, suggest volume within that range unless they explicitly ask differently)\n` +
+      `- ENCOURAGE CONTEXT: If you lack specific data to make a great recommendation (e.g., you don't know if a "Gym" session was upper or lower body), proactively ask the user to "Add context" to that specific workout in their history. Explain that this helps you provide better-targeted sessions.\n\n` +
       `Conversation history:\n${conversationContext}\n\n` +
       `New constraint/question from user: ${userMessage}\n\n` +
       `Adjust the recommendation to honor the user's input while maintaining training principles.\n` +
@@ -714,6 +723,34 @@ export const refineRecommendation = onCall({ secrets: [geminiApiKey] }, async (r
     if (e instanceof HttpsError) throw e
     throw new HttpsError('internal', (e as Error)?.message || 'Unknown error')
   }
+})
+
+export const transcribeWorkoutVoice = onCall({ secrets: [geminiApiKey] }, async (req) => {
+  if (!req.auth) {
+    throw new HttpsError('unauthenticated', 'Sign in to transcribe')
+  }
+
+  const audioBase64 = typeof req.data?.audio === 'string' ? req.data.audio : ''
+  if (!audioBase64) {
+    throw new HttpsError('invalid-argument', 'Missing audio data')
+  }
+
+  const apiKey = requireGeminiKey()
+  const genAI = new GoogleGenerativeAI(apiKey)
+  const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' })
+
+  const result = await model.generateContent([
+    {
+      inlineData: {
+        mimeType: 'audio/webm',
+        data: audioBase64,
+      },
+    },
+    { text: 'Transcribe this workout voice note exactly. If there is no speech, return an empty string. Do not add any commentary.' },
+  ])
+
+  const transcription = result.response.text().trim()
+  return { transcription }
 })
 
 export const stravaSyncRecent = onCall(
