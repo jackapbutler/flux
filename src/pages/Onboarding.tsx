@@ -27,7 +27,18 @@ export function Onboarding() {
   const [error, setError] = useState<string | null>(null)
 
   const connected = Boolean(profile?.strava?.connected)
-  const stravaJustConnected = params.get('strava') === 'connected'
+  const stravaState = params.get('strava')
+  const stravaJustConnected = stravaState === 'connected'
+  const stravaStatusMessage =
+    stravaState === 'denied'
+      ? 'Strava authorization was canceled. Please try again.'
+      : stravaState === 'scope_missing'
+        ? 'Strava did not grant required scopes (read, activity:read_all). Please authorize both scopes.'
+        : stravaState === 'callback_error'
+          ? 'Strava callback was incomplete. Please reconnect.'
+          : stravaJustConnected
+            ? 'Strava connected. Pulling workouts now.'
+            : null
 
   const userRef = useMemo(() => {
     if (!user) return null
@@ -94,74 +105,81 @@ export function Onboarding() {
   }, [connected, stravaJustConnected, user?.uid])
 
   return (
-    <main className="grid">
-      <section className="card">
-        <div style={{ display: 'flex', gap: 16, alignItems: 'center' }}>
-          <div style={{ width: 92, height: 92, borderRadius: 16, background: 'linear-gradient(135deg, rgba(6,182,212,0.12), rgba(59,130,246,0.12))', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <svg width="44" height="44" viewBox="0 0 24 24" fill="none"><path d="M12 6v6l4 2" stroke="#0369a1" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"/><circle cx="12" cy="8" r="1" fill="#0369a1"/></svg>
-          </div>
-          <div>
-            <h2>Welcome to Flux</h2>
-            <p className="muted">A calm training hub for all fitness — import logged workouts from Strava and add context. AI refines your profile privately to give better, personalised guidance.</p>
-          </div>
-        </div>
+    <main className="stack">
+      <section className="card hero">
+        <h2>Set up your training space</h2>
+        <p className="muted">
+          Complete these two steps to unlock synced history and high-quality workout
+          recommendations.
+        </p>
+      </section>
 
-        <div className="stack">
+      <section className="grid">
+        <div className="card stack">
+          <div className="label">Step 1</div>
+          <h2>Define your goal</h2>
+          <p className="muted">
+            Keep it simple and specific. Flux uses this with your workout history to shape
+            recommendations.
+          </p>
+
           <label className="field">
-            <span>Fitness goal (in your words)</span>
+            <span>Fitness goal</span>
             <input
               value={goalText}
               onChange={(e) => setGoalText(e.target.value)}
-              placeholder="E.g. build strength, improve endurance, attend classes 2x/week"
+              placeholder="Build endurance, keep strength, train 4 days per week"
             />
           </label>
 
           <div className="row">
-            <button type="button" onClick={() => void saveGoal()} disabled={saving}>
-              {saving ? 'Saving…' : 'Save goal'}
+            <button type="button" className="primary" onClick={() => void saveGoal()} disabled={saving}>
+              {saving ? 'Saving...' : 'Save goal'}
             </button>
             <button type="button" className="secondary" onClick={() => nav('/app')}>
-              Continue
+              Skip for now
             </button>
           </div>
+        </div>
 
-          <div className="divider" />
+        <div className="card stack">
+          <div className="label">Step 2</div>
+          <h2>Connect Strava</h2>
+          <p className="muted">
+            Import your latest activities, then enrich each workout with notes for better next
+            workout guidance.
+          </p>
 
-          <div>
-            <div className="label">Strava</div>
-            {connected ? (
-              <p className="muted">Connected ✓</p>
-            ) : (
-              <p className="muted">Not connected yet.</p>
-            )}
-            {stravaJustConnected ? (
-              <p className="muted">Strava connected — pulling workouts now.</p>
-            ) : null}
+          <p className="muted">{connected ? 'Connected' : 'Not connected yet'}</p>
+          {stravaStatusMessage ? <p className="muted">{stravaStatusMessage}</p> : null}
 
-            {connected ? (
-              <div className="row" style={{ marginTop: 10 }}>
-                <button
-                  type="button"
-                  className="primary"
-                  onClick={() => void syncAndPersona()}
-                  disabled={syncing}
-                >
-                  {syncing ? 'Pulling workouts…' : 'Pull workouts'}
-                </button>
-                <button type="button" className="secondary" onClick={() => nav('/app')}>
-                  Go to Hub
-                </button>
-              </div>
-            ) : (
-              <button type="button" onClick={() => void connectStrava()}>
-                Connect Strava
+          {connected ? (
+            <div className="row">
+              <button
+                type="button"
+                className="primary"
+                onClick={() => void syncAndPersona()}
+                disabled={syncing}
+              >
+                {syncing ? 'Syncing workouts...' : 'Sync workouts'}
               </button>
-            )}
-          </div>
-
-          {error ? <p className="error">{error}</p> : null}
+              <button type="button" className="secondary" onClick={() => nav('/app')}>
+                Open Hub
+              </button>
+            </div>
+          ) : (
+            <button type="button" className="primary" onClick={() => void connectStrava()}>
+              Connect Strava
+            </button>
+          )}
         </div>
       </section>
+
+      {error ? (
+        <section className="card">
+          <div className="error">{error}</div>
+        </section>
+      ) : null}
     </main>
   )
 }

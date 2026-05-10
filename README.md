@@ -50,8 +50,8 @@ VITE_USE_EMULATORS=true
 ## Gemini (callable Cloud Function)
 
 This starter includes:
-- `geminiPrompt` (callable) — freeform prompt → text
-- `recommendNextWorkout` (callable) — reads your goal + recent workouts and returns a calm next-workout plan
+- `geminiPrompt` (callable): freeform prompt -> text
+- `recommendNextWorkout` (callable): reads your goal + recent workouts and returns a calm next-workout plan
 
 Gemini is called server-side so your API key is **not** exposed in the browser.
 

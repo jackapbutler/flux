@@ -50,6 +50,16 @@ function getWebBaseUrl(): string {
   return defaultWebBaseUrl().replace(/\/$/, '')
 }
 
+function scopesContainRequired(scopeValue: string): boolean {
+  const granted = new Set(
+    scopeValue
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean),
+  )
+  return granted.has('read') && granted.has('activity:read_all')
+}
+
 function base64url(input: string): string {
   return Buffer.from(input).toString('base64url')
 }
@@ -125,9 +135,11 @@ export const stravaAuthUrl = onCall(
     if (!clientId) {
       throw new HttpsError('failed-precondition', 'Missing STRAVA_CLIENT_ID secret')
     }
+    if (!secret) {
+      throw new HttpsError('failed-precondition', 'Missing STRAVA_STATE_SECRET secret')
+    }
 
     const state = makeState(req.auth.uid, secret)
-
     const redirectUri = `${getWebBaseUrl()}/api/strava/callback`
 
     const url = new URL('https://www.strava.com/oauth/authorize')
@@ -146,29 +158,49 @@ export const stravaCallback = onRequest(
   { secrets: [stravaClientId, stravaClientSecret, stravaStateSecret] },
   async (req, res) => {
     try {
+      const oauthError = typeof req.query.error === 'string' ? req.query.error : ''
       const code = typeof req.query.code === 'string' ? req.query.code : ''
       const state = typeof req.query.state === 'string' ? req.query.state : ''
+      const scope = typeof req.query.scope === 'string' ? req.query.scope : ''
+
+      if (oauthError) {
+        res.redirect(302, `${getWebBaseUrl()}/onboarding?strava=denied`)
+        return
+      }
 
       if (!code || !state) {
-        res.status(400).send('Missing code/state')
+        res.redirect(302, `${getWebBaseUrl()}/onboarding?strava=callback_error`)
         return
       }
 
       const stateSecret = stravaStateSecret.value()
+      if (!stateSecret) {
+        res.status(500).send('Missing STRAVA_STATE_SECRET secret')
+        return
+      }
       const { uid } = parseAndVerifyState(state, stateSecret)
 
-      const clientId = stravaClientId.value()
-      const clientSecret = stravaClientSecret.value()
+      if (!scope || !scopesContainRequired(scope)) {
+        res.redirect(302, `${getWebBaseUrl()}/onboarding?strava=scope_missing`)
+        return
+      }
+
+      const clientId = (stravaClientId.value() || '').trim()
+      const clientSecret = (stravaClientSecret.value() || '').trim()
+      if (!clientId || !clientSecret) {
+        res.status(500).send('Missing STRAVA_CLIENT_ID or STRAVA_CLIENT_SECRET secret')
+        return
+      }
 
       const tokenResp = await fetch('https://www.strava.com/oauth/token', {
         method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({
+        headers: { 'content-type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({
           client_id: clientId,
           client_secret: clientSecret,
           code,
           grant_type: 'authorization_code',
-        }),
+        }).toString(),
       })
 
       if (!tokenResp.ok) {
@@ -193,20 +225,22 @@ export const stravaCallback = onRequest(
           refreshToken: tokenJson.refresh_token,
           expiresAt: tokenJson.expires_at,
           athleteId,
+          scope,
           updatedAt: FieldValue.serverTimestamp(),
         },
         { merge: true },
       )
 
+      const stravaProfile: Record<string, unknown> = {
+        connected: true,
+        lastSyncAt: null,
+      }
+      if (athleteId !== null) {
+        stravaProfile.athleteId = athleteId
+      }
+
       await db.doc(`users/${uid}`).set(
-        {
-          strava: {
-            connected: true,
-            athleteId: athleteId ?? undefined,
-            lastSyncAt: null,
-          },
-          updatedAt: FieldValue.serverTimestamp(),
-        },
+        { strava: stravaProfile, updatedAt: FieldValue.serverTimestamp() },
         { merge: true },
       )
 
@@ -250,13 +284,13 @@ async function getStravaAccessToken(uid: string): Promise<string> {
 
   const resp = await fetch('https://www.strava.com/oauth/token', {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({
+    headers: { 'content-type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({
       client_id: clientId,
       client_secret: clientSecret,
       grant_type: 'refresh_token',
       refresh_token: refreshToken,
-    }),
+    }).toString(),
   })
 
   if (!resp.ok) {
@@ -303,6 +337,7 @@ async function buildFitnessPersonaText(uid: string): Promise<string> {
         distance?: unknown
         elapsedTime?: unknown
       }
+      context?: { text?: unknown }
     }
 
     return {
@@ -311,6 +346,7 @@ async function buildFitnessPersonaText(uid: string): Promise<string> {
       startDate: typeof data.strava?.startDate === 'string' ? data.strava.startDate : null,
       distance: typeof data.strava?.distance === 'number' ? data.strava.distance : null,
       elapsedTime: typeof data.strava?.elapsedTime === 'number' ? data.strava.elapsedTime : null,
+      contextText: typeof data.context?.text === 'string' ? data.context.text : null,
     }
   })
 
@@ -320,14 +356,14 @@ async function buildFitnessPersonaText(uid: string): Promise<string> {
 
   const prompt =
     `You are Flux, a calm personal trainer in the user's pocket.\n` +
-    `Write a short fitness persona for this user based on their goal and recent workouts.\n` +
-    `Keep it under 160 words. No fluff.\n\n` +
+    `Write a short fitness persona from goal, workout patterns, and context notes.\n` +
+    `Be concrete and practical. Keep it under 180 words.\n\n` +
     `Goal:\n${goalText || '(not set)'}\n\n` +
     `Recent workouts (JSON):\n${JSON.stringify(workouts, null, 2)}\n\n` +
     `Output format:\n` +
-    `- Persona (3-5 bullets)\n` +
-    `- Constraints/risks (0-3 bullets)\n` +
-    `- Coaching focus for next 2 weeks (3 bullets)`
+    `- Athlete profile (3 bullets)\n` +
+    `- Constraints and risks (0-3 bullets)\n` +
+    `- Coaching focus for next 14 days (3 bullets)`
 
   const result = await model.generateContent(prompt)
   return result.response.text().trim()
@@ -399,19 +435,24 @@ export const recommendNextWorkout = onCall({ secrets: [geminiApiKey] }, async (r
 
     const guidance = readGuidanceText()
     const apiKey = requireGeminiKey()
+    const contextCount = workouts.filter((w) => Boolean(w.contextText)).length
 
     const prompt =
       `You are Flux, a calm personal trainer in the user's pocket.\n` +
-      `Use the guidance, goal, persona, and recent workouts to recommend 1–3 next workouts.\n` +
-      `Be safe and specific.\n\n` +
+      `Use guidance, goal, persona, and recent workouts to recommend 1-3 next sessions.\n` +
+      `Prioritize safety, progression, and consistency.\n` +
+      `Do not overprescribe intensity after heavy recent load or fatigue signals.\n\n` +
       `WORKOUT_GUIDANCE.TXT:\n${guidance || '(missing guidance)'}\n\n` +
       `Goal:\n${goalText || '(not set)'}\n\n` +
       `Fitness persona (if any):\n${persona || '(not built yet)'}\n\n` +
+      `Context coverage: ${contextCount} workouts include user notes.\n\n` +
       `Recent workouts (JSON):\n${JSON.stringify(workouts, null, 2)}\n\n` +
       `Return exactly this format:\n` +
       `Option 1 (best):\n- Title\n- Duration\n- Intensity (RPE)\n- Warmup\n- Main set\n- Cooldown\n- Why (2 bullets)\n\n` +
-      `Option 2 (optional): same\n\n` +
-      `Option 3 (optional): same\n`
+      `Option 2 (optional): same format\n\n` +
+      `Option 3 (optional): same format\n\n` +
+      `Then add:\n` +
+      `Safety checks:\n- 2 concise bullets based on this user's recent history\n`
 
     const genAI = new GoogleGenerativeAI(apiKey)
     const model = genAI.getGenerativeModel({ model: 'gemini-3.1-flash-lite' })
@@ -427,7 +468,7 @@ export const recommendNextWorkout = onCall({ secrets: [geminiApiKey] }, async (r
 })
 
 export const stravaSyncRecent = onCall(
-  { secrets: [stravaClientId, stravaClientSecret, geminiApiKey], cors: true },
+  { secrets: [stravaClientId, stravaClientSecret], cors: true },
   async (req) => {
     try {
       if (!req.auth) throw new HttpsError('unauthenticated', 'Sign in')
@@ -487,19 +528,27 @@ export const stravaSyncRecent = onCall(
 
       const buildPersona = Boolean((req.data as { buildPersona?: unknown } | undefined)?.buildPersona)
 
+      let personaBuilt = false
+      let personaError: string | null = null
       if (buildPersona) {
-        const personaText = await buildFitnessPersonaText(req.auth.uid)
-        await db.doc(`users/${req.auth.uid}`).set(
-          {
-            fitnessPersonaText: personaText,
-            fitnessPersonaUpdatedAt: FieldValue.serverTimestamp(),
-            updatedAt: FieldValue.serverTimestamp(),
-          },
-          { merge: true },
-        )
+        try {
+          const personaText = await buildFitnessPersonaText(req.auth.uid)
+          await db.doc(`users/${req.auth.uid}`).set(
+            {
+              fitnessPersonaText: personaText,
+              fitnessPersonaUpdatedAt: FieldValue.serverTimestamp(),
+              updatedAt: FieldValue.serverTimestamp(),
+            },
+            { merge: true },
+          )
+          personaBuilt = true
+        } catch (e) {
+          console.error('buildFitnessPersona during stravaSyncRecent failed', e)
+          personaError = (e as Error)?.message || 'Failed to build persona'
+        }
       }
 
-      return { upserted, personaBuilt: buildPersona }
+      return { upserted, personaBuilt, personaError }
     } catch (e) {
       console.error('stravaSyncRecent failed', e)
       if (e instanceof HttpsError) throw e

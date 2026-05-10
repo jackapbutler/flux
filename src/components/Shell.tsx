@@ -13,7 +13,9 @@ export function Shell() {
           <Link to={user ? '/app' : '/login'} className="brandLink">
             <div className="brandTitle">Flux</div>
           </Link>
-          <p className="brandTagline">Calm, personalized training for all fitness — strength, cardio, classes, and more.</p>
+          <p className="brandTagline">
+            Calm personalized training for strength, cardio, classes, and more.
+          </p>
         </div>
 
         <nav className="nav">

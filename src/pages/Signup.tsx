@@ -51,7 +51,9 @@ export function Signup() {
     <main className="auth">
       <section className="card authCard">
         <h2>Create your account</h2>
-        <p className="muted">A calm training hub connected to Strava.</p>
+        <p className="muted">
+          Start with account setup, connect Strava, and unlock personalized next workouts.
+        </p>
 
         <div className="stack" style={{ marginTop: 14 }}>
           <button
@@ -85,7 +87,7 @@ export function Signup() {
               minLength={6}
             />
           </label>
-          <button type="button" onClick={() => void signupEmail()}>
+          <button type="button" className="secondary" onClick={() => void signupEmail()}>
             Create account
           </button>
 

@@ -27,6 +27,7 @@ export function WorkoutContextEditor({ uid, workoutId, initialText }: Props) {
   const [saving, setSaving] = useState(false)
   const [recording, setRecording] = useState(false)
   const [uploading, setUploading] = useState(false)
+  const [status, setStatus] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null)
@@ -37,19 +38,15 @@ export function WorkoutContextEditor({ uid, workoutId, initialText }: Props) {
   const saveText = async () => {
     try {
       setError(null)
+      setStatus(null)
       setSaving(true)
       await updateDoc(workoutRef, {
         context: { text: text.trim(), updatedAt: serverTimestamp() },
       })
 
-      // Rebuild persona after workout enrichment
-      try {
-        const fn = httpsCallable(functions, 'buildFitnessPersona')
-        await fn()
-      } catch (e) {
-        // don't block the user — surface non-fatal errors
-        console.warn('buildFitnessPersona failed', e)
-      }
+      const fn = httpsCallable(functions, 'buildFitnessPersona')
+      await fn()
+      setStatus('Context saved')
     } catch (e) {
       setError(errorMessage(e))
     } finally {
@@ -86,6 +83,7 @@ export function WorkoutContextEditor({ uid, workoutId, initialText }: Props) {
 
     try {
       setError(null)
+      setStatus(null)
       setUploading(true)
 
       const stopped = new Promise<void>((resolve) => {
@@ -110,13 +108,9 @@ export function WorkoutContextEditor({ uid, workoutId, initialText }: Props) {
         },
       })
 
-      // Rebuild persona after workout enrichment
-      try {
-        const fn = httpsCallable(functions, 'buildFitnessPersona')
-        await fn()
-      } catch (e) {
-        console.warn('buildFitnessPersona failed', e)
-      }
+      const fn = httpsCallable(functions, 'buildFitnessPersona')
+      await fn()
+      setStatus('Voice context attached')
 
       setRecording(false)
       mediaRecorderRef.current = null
@@ -131,17 +125,18 @@ export function WorkoutContextEditor({ uid, workoutId, initialText }: Props) {
   return (
     <div className="stack" style={{ marginTop: 10 }}>
       <label className="field">
-        <span>How did it feel?</span>
-        <input
+        <span>Workout context</span>
+        <textarea
           value={text}
           onChange={(e) => setText(e.target.value)}
-          placeholder="E.g. legs heavy, good sleep, windy, slight knee niggle"
+          placeholder="How did it feel? Any pain, sleep quality, or energy notes?"
+          rows={3}
         />
       </label>
 
       <div className="row">
         <button type="button" onClick={() => void saveText()} disabled={saving}>
-          {saving ? 'Saving…' : 'Save context'}
+          {saving ? 'Saving...' : 'Save context'}
         </button>
 
         {!recording ? (
@@ -150,12 +145,13 @@ export function WorkoutContextEditor({ uid, workoutId, initialText }: Props) {
           </button>
         ) : (
           <button type="button" className="primary" onClick={() => void stopAndUpload()} disabled={uploading}>
-            {uploading ? 'Uploading…' : 'Stop + attach'}
+            {uploading ? 'Uploading...' : 'Stop + attach'}
           </button>
         )}
       </div>
 
       {error ? <div className="error">{error}</div> : null}
+      {status ? <p className="muted">{status}</p> : null}
       <p className="muted">Voice notes upload to your Firebase Storage bucket.</p>
     </div>
   )

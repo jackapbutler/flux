@@ -51,7 +51,10 @@ export function Login() {
     <main className="auth">
       <section className="card authCard">
         <h2>Welcome back</h2>
-        <p className="muted">Sign in to sync workouts and get calm guidance.</p>
+        <p className="muted">
+          Sign in to sync Strava workouts, capture context, and get focused next-workout
+          guidance.
+        </p>
 
         <div className="stack" style={{ marginTop: 14 }}>
           <button type="button" className="primary" onClick={() => void loginGoogle()}>
@@ -80,7 +83,7 @@ export function Login() {
               autoComplete="current-password"
             />
           </label>
-          <button type="button" onClick={() => void loginEmail()}>
+          <button type="button" className="secondary" onClick={() => void loginEmail()}>
             Sign in
           </button>
 
