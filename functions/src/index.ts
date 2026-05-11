@@ -687,6 +687,11 @@ export const recommendNextWorkout = onCall(
       `- Fatigue management: monitor recent load (duration, intensity, frequency). After heavy/long sessions, reduce next load\n` +
       `- Recovery: prioritize sleep, nutrition (1.6-2.2g protein/kg), structured rest days, and periodic deloads (~5-6 weeks)\n` +
       `- Safety first: avoid overprescribing intensity when fatigue signals detected; use proper form over heavy weight\n\n` +
+      `- Keep recommendation copy concise for mobile readability:\n` +
+      `  - title <= 6 words\n` +
+      `  - duration/intensity <= 10 words each\n` +
+      `  - warmup/mainSet/cooldown <= 22 words each\n` +
+      `  - each "why" bullet <= 14 words\n\n` +
       `WORKOUT_GUIDANCE.TXT:\n${guidance || '(missing guidance)'}\n\n` +
       `Goal:\n${goalText || '(not set)'}\n\n` +
       `LONG-TERM FITNESS PERSONA:\n${persona || '(not built yet)'}\n\n` +
@@ -823,6 +828,11 @@ export const refineRecommendation = onCall({ secrets: [geminiApiKey] }, async (r
       `  (e.g., if they typically run 30-40min, suggest volume within that range unless they explicitly ask differently)\n` +
       `- Use current date context and workout recency fields (startDate/workoutDateUtc/dayOfWeekUtc/daysAgo) to avoid loading too hard too soon\n` +
       `- ENCOURAGE CONTEXT: If you lack specific data to make a great recommendation (e.g., you don't know if a "Gym" session was upper or lower body), proactively ask the user to "Add context" to that specific workout in their history. Explain that this helps you provide better-targeted sessions.\n\n` +
+      `- Keep recommendation copy concise for mobile readability:\n` +
+      `  - title <= 6 words\n` +
+      `  - duration/intensity <= 10 words each\n` +
+      `  - warmup/mainSet/cooldown <= 22 words each\n` +
+      `  - each "why" bullet <= 14 words\n\n` +
       `Goal:\n${goalText || '(not set)'}\n\n` +
       `LONG-TERM FITNESS PERSONA:\n${persona || '(not built yet)'}\n\n` +
       `CURRENT DATE CONTEXT (UTC):\n${JSON.stringify(currentDateContext, null, 2)}\n\n` +

@@ -6,14 +6,6 @@ type Props = {
   index: number
 }
 
-const MAX_PREVIEW_LENGTH = 120
-
-function getOverviewPreview(mainSet: string): string {
-  const compact = mainSet.trim()
-  if (compact.length <= MAX_PREVIEW_LENGTH) return compact
-  return `${compact.slice(0, MAX_PREVIEW_LENGTH - 3).trimEnd()}...`
-}
-
 function getIntensityColor(intensity: string): string {
   const lower = intensity.toLowerCase()
   if (lower.includes('1') || lower.includes('2') || lower.includes('easy') || lower.includes('low')) {
@@ -31,7 +23,7 @@ function getIntensityColor(intensity: string): string {
 export function RecommendationCard({ option, index }: Props) {
   const intensityColor = getIntensityColor(option.intensity)
   const topReason = option.why.length > 0 ? option.why[0] : undefined
-  const overviewPreview = getOverviewPreview(option.mainSet)
+  const overviewPreview = option.mainSet.trim()
 
   return (
     <div className="workoutOption">
@@ -47,12 +39,12 @@ export function RecommendationCard({ option, index }: Props) {
 
       <div className="optionMetrics">
         <div className="metricSmall">
-          <span className="metricLabel">Duration</span>
-          <span className="metricValue">{option.duration}</span>
+          <span className="optionMetricLabel">Duration</span>
+          <span className="optionMetricValue">{option.duration}</span>
         </div>
         <div className="metricSmall">
-          <span className="metricLabel">Intensity</span>
-          <span className="metricValue" style={{ color: intensityColor }}>
+          <span className="optionMetricLabel">Intensity</span>
+          <span className="optionMetricValue" style={{ color: intensityColor }}>
             {option.intensity}
           </span>
         </div>

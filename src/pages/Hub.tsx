@@ -302,7 +302,11 @@ export function Hub() {
                         </div>
 
                         <div className="stack" style={{ alignItems: 'flex-end', gap: 6 }}>
-                          <div className="muted">
+                          <div
+                            className={`contextStatus ${
+                              workout.context?.text ? 'contextStatus--added' : 'contextStatus--missing'
+                            }`}
+                          >
                             Context: {workout.context?.text ? 'Added' : 'Missing'}
                           </div>
                           <button
