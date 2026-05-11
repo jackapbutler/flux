@@ -672,13 +672,13 @@ export const recommendNextWorkout = onCall(
       `LONG-TERM FITNESS PERSONA:\n${persona || '(not built yet)'}\n\n` +
       `CURRENT DATE CONTEXT (UTC):\n${JSON.stringify(currentDateContext, null, 2)}\n\n` +
       `IMMEDIATE CONTEXT (Last 10 Workouts):\n` +
-      `Context coverage: ${contextCount}/${workouts.length} workouts include user notes.\n` +
+      `Context coverage: ${contextCount}/${workouts.length} workouts include user notes (count may be below 10 for new users).\n` +
       `Recent workouts (JSON):\n${JSON.stringify(workouts, null, 2)}\n\n` +
       `RECOMMENDATION STRATEGY:\n` +
       `1. Assess recent load: sum duration/intensity of last 3-5 workouts\n` +
       `2. Check for fatigue signals: user notes mentioning soreness, fatigue, or reduced energy\n` +
       `3. Apply periodization: if recent intensity high, recommend moderate/recovery; if recent load light, recommend challenging session\n` +
-      `4. Use current date and workout date fields (startDate/workoutDateUtc/dayOfWeekUtc/daysAgo) to reason about recency and recovery windows\n` +
+      `4. Use current date and workout date fields (startDate ISO timestamp, workoutDateUtc date-only, plus dayOfWeekUtc/daysAgo) to reason about recency and recovery windows\n` +
       `5. Use RPE guidance: specify intensity as "RPE X/10" (easier sessions RPE 5-6, moderate 6-7, challenging 7-8+)\n` +
       `6. Include warm-up/cool-down appropriate to intensity\n` +
       `7. Provide reasoning: why this workout now (progressive vs recovery, modality, energy system)\n` +
@@ -807,7 +807,7 @@ export const refineRecommendation = onCall({ secrets: [geminiApiKey] }, async (r
       `LONG-TERM FITNESS PERSONA:\n${persona || '(not built yet)'}\n\n` +
       `CURRENT DATE CONTEXT (UTC):\n${JSON.stringify(currentDateContext, null, 2)}\n\n` +
       `IMMEDIATE CONTEXT (Last 10 Workouts):\n` +
-      `Context coverage: ${contextCount}/${workouts.length} workouts include user notes.\n` +
+      `Context coverage: ${contextCount}/${workouts.length} workouts include user notes (count may be below 10 for new users).\n` +
       `Recent workouts (JSON):\n${JSON.stringify(workouts, null, 2)}\n\n` +
       `Conversation history:\n${conversationContext}\n\n` +
       `New constraint/question from user: ${userMessage}\n\n` +
