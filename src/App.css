@@ -184,9 +184,10 @@
 }
 
 .optionTitle {
-  font-size: 22px;
+  font-size: clamp(18px, 4.8vw, 22px);
   line-height: 1.2;
   margin: 4px 0 0;
+  max-width: 100%;
   overflow-wrap: anywhere;
 }
 
@@ -572,10 +573,6 @@
     flex-direction: column;
     gap: 10px;
     padding: 10px 12px;
-  }
-
-  .optionTitle {
-    font-size: 18px;
   }
 
   .optionMetricValue {

@@ -647,7 +647,7 @@ const lowerBodyKeywords = [
   'squat',
   'lunge',
   'deadlift',
-]
+].map((keyword) => keyword.toLowerCase())
 
 const hardEffortKeywords = [
   'heavy',
@@ -664,7 +664,7 @@ const hardEffortKeywords = [
   'rpe 8',
   'rpe 9',
   'rpe 10',
-]
+].map((keyword) => keyword.toLowerCase())
 
 const fatigueKeywords = [
   'fatigue',
@@ -677,11 +677,13 @@ const fatigueKeywords = [
   'doms',
   'pain',
   'aching',
-]
+].map((keyword) => keyword.toLowerCase())
+
+const MAX_RECOVERY_ALERTS = 3
 
 function includesAnyKeyword(text: string, keywords: string[]): boolean {
   const normalizedText = text.toLowerCase()
-  return keywords.some((keyword) => normalizedText.includes(keyword.toLowerCase()))
+  return keywords.some((keyword) => normalizedText.includes(keyword))
 }
 
 function deriveRecoveryAlerts(workouts: RecommendationWorkoutContext[]): string[] {
@@ -717,7 +719,7 @@ function deriveRecoveryAlerts(workouts: RecommendationWorkoutContext[]): string[
     }
   }
 
-  return Array.from(new Set(alerts)).slice(0, 3)
+  return Array.from(new Set(alerts)).slice(0, MAX_RECOVERY_ALERTS)
 }
 
 export const buildFitnessPersona = onCall(
