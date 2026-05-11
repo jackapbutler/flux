@@ -101,7 +101,7 @@ export function WorkoutContextEditor({ uid, workoutId, workoutType, initialText,
           query(
             collection(db, 'users', uid, 'workouts'),
             orderBy('strava.startDate', 'desc'),
-            firestoreLimit(30),
+            firestoreLimit(20),
           ),
         )
         if (disposed) return
@@ -133,6 +133,17 @@ export function WorkoutContextEditor({ uid, workoutId, workoutType, initialText,
       disposed = true
     }
   }, [uid, workoutType])
+
+  useEffect(() => {
+    if (!status?.startsWith('Keep it focused:')) return
+    const timer = window.setTimeout(() => setStatus(null), 2500)
+    return () => window.clearTimeout(timer)
+  }, [status])
+
+  const displayedTags = useMemo(
+    () => uniqueTags([...selectedTags, ...suggestedTags]),
+    [selectedTags, suggestedTags],
+  )
 
   const toggleTag = (tag: string) => {
     setStatus(null)
@@ -298,7 +309,7 @@ export function WorkoutContextEditor({ uid, workoutId, workoutType, initialText,
           </span>
         </div>
         <div className="contextTagList">
-          {uniqueTags([...selectedTags, ...suggestedTags]).map((tag) => {
+          {displayedTags.map((tag) => {
             const isActive = selectedTags.some((t) => t.toLowerCase() === tag.toLowerCase())
             return (
               <button
