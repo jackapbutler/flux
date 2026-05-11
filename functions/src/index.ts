@@ -630,6 +630,93 @@ async function getRecentRecommendationContext(uid: string): Promise<{
   return { currentDateContext, workouts, contextCount }
 }
 
+const lowerBodyKeywords = [
+  'leg',
+  'legs',
+  'lower body',
+  'lower-body',
+  'lower',
+  'quad',
+  'quads',
+  'hamstring',
+  'hamstrings',
+  'glute',
+  'glutes',
+  'calf',
+  'calves',
+  'squat',
+  'lunge',
+  'deadlift',
+]
+
+const hardEffortKeywords = [
+  'heavy',
+  'hard',
+  'max',
+  'maximal',
+  'intense',
+  'intensity',
+  'interval',
+  'sprint',
+  'failure',
+  'pr',
+  '1rm',
+]
+
+const fatigueKeywords = [
+  'fatigue',
+  'fatigued',
+  'tired',
+  'wrecked',
+  'sore',
+  'soreness',
+  'stiff',
+  'doms',
+  'pain',
+  'aching',
+]
+
+function includesAnyKeyword(text: string, keywords: string[]): boolean {
+  return keywords.some((keyword) => text.includes(keyword))
+}
+
+function deriveRecoveryAlerts(workouts: RecommendationWorkoutContext[]): string[] {
+  const alerts: string[] = []
+
+  for (const workout of workouts) {
+    if (workout.daysAgo === null || workout.daysAgo > 2) continue
+    const text = [
+      workout.name ?? '',
+      workout.contextText ?? '',
+      ...(workout.contextTags ?? []),
+    ]
+      .join(' ')
+      .toLowerCase()
+
+    if (!text.trim()) continue
+
+    const hasLowerBodySignal = includesAnyKeyword(text, lowerBodyKeywords)
+    const hasHardEffortSignal =
+      includesAnyKeyword(text, hardEffortKeywords) || text.includes('rpe 8') || text.includes('rpe 9') || text.includes('rpe 10')
+    const hasFatigueSignal = includesAnyKeyword(text, fatigueKeywords)
+
+    if (hasLowerBodySignal && (hasHardEffortSignal || hasFatigueSignal)) {
+      alerts.push(
+        `Recent lower-body strain detected ${workout.daysAgo} day(s) ago; avoid another heavy leg/lower-body session immediately.`,
+      )
+      continue
+    }
+
+    if (hasHardEffortSignal || hasFatigueSignal) {
+      alerts.push(
+        `Recent high fatigue/load signal detected ${workout.daysAgo} day(s) ago; reduce intensity or switch to recovery-focused work.`,
+      )
+    }
+  }
+
+  return Array.from(new Set(alerts)).slice(0, 3)
+}
+
 export const buildFitnessPersona = onCall(
   { secrets: [geminiApiKey], invoker: 'public' },
   async (req) => {
@@ -672,6 +759,7 @@ export const recommendNextWorkout = onCall(
       typeof userData.fitnessPersonaText === 'string' ? userData.fitnessPersonaText.trim() : ''
 
     const { currentDateContext, workouts, contextCount } = await getRecentRecommendationContext(uid)
+    const recoveryAlerts = deriveRecoveryAlerts(workouts)
 
     const guidance = readGuidanceText()
     const apiKey = requireGeminiKey()
@@ -687,12 +775,18 @@ export const recommendNextWorkout = onCall(
       `- Fatigue management: monitor recent load (duration, intensity, frequency). After heavy/long sessions, reduce next load\n` +
       `- Recovery: prioritize sleep, nutrition (1.6-2.2g protein/kg), structured rest days, and periodic deloads (~5-6 weeks)\n` +
       `- Safety first: avoid overprescribing intensity when fatigue signals detected; use proper form over heavy weight\n\n` +
+      `- Keep recommendation copy concise for mobile readability:\n` +
+      `  - title <= 6 words\n` +
+      `  - duration/intensity <= 10 words each\n` +
+      `  - warmup/mainSet/cooldown <= 22 words each\n` +
+      `  - each "why" bullet <= 14 words\n\n` +
       `WORKOUT_GUIDANCE.TXT:\n${guidance || '(missing guidance)'}\n\n` +
       `Goal:\n${goalText || '(not set)'}\n\n` +
       `LONG-TERM FITNESS PERSONA:\n${persona || '(not built yet)'}\n\n` +
       `CURRENT DATE CONTEXT (UTC):\n${JSON.stringify(currentDateContext, null, 2)}\n\n` +
       `IMMEDIATE CONTEXT (Last 10 Workouts):\n` +
       `Context coverage: ${contextCount}/${workouts.length} workouts include user notes (count may be below 10 for new users).\n` +
+      `Recovery alerts:\n${recoveryAlerts.length ? recoveryAlerts.map((a, i) => `${i + 1}. ${a}`).join('\n') : '- none detected'}\n` +
       `Recent workouts (JSON):\n${JSON.stringify(workouts, null, 2)}\n\n` +
       `RECOMMENDATION STRATEGY:\n` +
       `1. Assess recent load: sum duration/intensity of last 3-5 workouts\n` +
@@ -710,7 +804,8 @@ export const recommendNextWorkout = onCall(
       `   - If user has logged multiple swims: infer pool/open water preference, stroke preferences, typical distances\n` +
       `   - If user has logged strength: identify primary lifts, typical session duration, volume/intensity patterns\n` +
       `   - Use past workout durations as anchors for volume (e.g., "last 5K run was 28min, recommend volume based on this")\n` +
-      `   - Suggest volume/intensity that fits their historical patterns AND progressive overload (e.g., +5-10% if appropriate)\n\n` +
+      `   - Suggest volume/intensity that fits their historical patterns AND progressive overload (e.g., +5-10% if appropriate)\n` +
+      `12. HARD-LEG-DAY SAFETY: if recent context indicates heavy/fatigued lower-body work in last 48h, do not prescribe another heavy lower-body session; shift to upper body, technique, mobility, or easy aerobic recovery.\n\n` +
       `Return ONLY valid JSON (no markdown, no extra text) matching this schema:\n` +
       `{\n` +
       `  "options": [\n` +
@@ -801,6 +896,7 @@ export const refineRecommendation = onCall({ secrets: [geminiApiKey] }, async (r
     const persona =
       typeof userData.fitnessPersonaText === 'string' ? userData.fitnessPersonaText.trim() : ''
     const { currentDateContext, workouts, contextCount } = await getRecentRecommendationContext(uid)
+    const recoveryAlerts = deriveRecoveryAlerts(workouts)
     const apiKey = requireGeminiKey()
 
     // Build conversation context for the model
@@ -823,11 +919,18 @@ export const refineRecommendation = onCall({ secrets: [geminiApiKey] }, async (r
       `  (e.g., if they typically run 30-40min, suggest volume within that range unless they explicitly ask differently)\n` +
       `- Use current date context and workout recency fields (startDate/workoutDateUtc/dayOfWeekUtc/daysAgo) to avoid loading too hard too soon\n` +
       `- ENCOURAGE CONTEXT: If you lack specific data to make a great recommendation (e.g., you don't know if a "Gym" session was upper or lower body), proactively ask the user to "Add context" to that specific workout in their history. Explain that this helps you provide better-targeted sessions.\n\n` +
+      `- Keep recommendation copy concise for mobile readability:\n` +
+      `  - title <= 6 words\n` +
+      `  - duration/intensity <= 10 words each\n` +
+      `  - warmup/mainSet/cooldown <= 22 words each\n` +
+      `  - each "why" bullet <= 14 words\n` +
+      `- HARD-LEG-DAY SAFETY: if recent context indicates heavy/fatigued lower-body work in last 48h, do not prescribe another heavy lower-body session; shift to upper body, technique, mobility, or easy aerobic recovery.\n\n` +
       `Goal:\n${goalText || '(not set)'}\n\n` +
       `LONG-TERM FITNESS PERSONA:\n${persona || '(not built yet)'}\n\n` +
       `CURRENT DATE CONTEXT (UTC):\n${JSON.stringify(currentDateContext, null, 2)}\n\n` +
       `IMMEDIATE CONTEXT (Last 10 Workouts):\n` +
       `Context coverage: ${contextCount}/${workouts.length} workouts include user notes (count may be below 10 for new users).\n` +
+      `Recovery alerts:\n${recoveryAlerts.length ? recoveryAlerts.map((a, i) => `${i + 1}. ${a}`).join('\n') : '- none detected'}\n` +
       `Recent workouts (JSON):\n${JSON.stringify(workouts, null, 2)}\n\n` +
       `Conversation history:\n${conversationContext}\n\n` +
       `New constraint/question from user: ${userMessage}\n\n` +
