@@ -28,6 +28,7 @@ export type Workout = {
   }
   context?: {
     text?: string
+    tags?: string[]
     voiceUrl?: string
     updatedAt?: Timestamp
   }

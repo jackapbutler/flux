@@ -55,6 +55,7 @@ export function Onboarding() {
   const [error, setError] = useState<string | null>(null)
 
   const connected = Boolean(profile?.strava?.connected)
+  const hasSavedGoal = Boolean(profile?.goalText?.trim())
   const stravaState = params.get('strava')
   const stravaJustConnected = stravaState === 'connected'
   const stravaStatusMessage =
@@ -176,14 +177,16 @@ export function Onboarding() {
             </button>
           </div>
           {goalSaved ? <p className="muted">{goalSaved}</p> : null}
-          <button
-            type="button"
-            className="secondary"
-            onClick={() => nav('/app')}
-            disabled={saving}
-          >
+          {!hasSavedGoal ? (
+            <button
+              type="button"
+              className="secondary"
+              onClick={() => nav('/app')}
+              disabled={saving}
+            >
               Skip for now
-          </button>
+            </button>
+          ) : null}
         </div>
 
         <div className="card stack">

@@ -1,14 +1,28 @@
 import { ref as storageRef, uploadBytes, getDownloadURL } from 'firebase/storage'
-import { doc, serverTimestamp, updateDoc } from 'firebase/firestore'
-import { useMemo, useRef, useState } from 'react'
+import { collection, doc, getDocs, limit as firestoreLimit, orderBy, query, serverTimestamp, updateDoc } from 'firebase/firestore'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { db, storage, functions } from '../lib/firebase'
 import { httpsCallable } from 'firebase/functions'
 
 type Props = {
   uid: string
   workoutId: string
+  workoutType?: string | null
   initialText?: string | null
+  initialTags?: string[] | null
+  initialVoiceUrl?: string | null
 }
+
+const MAX_SUGGESTED_TAGS = 6
+const MAX_SELECTED_TAGS = 6
+const TAG_LIMIT_STATUS = `Keep it focused: up to ${MAX_SELECTED_TAGS} tags.`
+
+const DEFAULT_TAGS_BY_TYPE: Array<{ match: string[]; tags: string[] }> = [
+  { match: ['run'], tags: ['Recovery', 'Easy', 'Tempo', 'Intervals', 'Long'] },
+  { match: ['ride', 'cycle'], tags: ['Recovery', 'Endurance', 'Tempo', 'Intervals', 'Climbing'] },
+  { match: ['swim'], tags: ['Technique', 'Endurance', 'Tempo', 'Intervals', 'Recovery'] },
+  { match: ['weight', 'gym', 'strength', 'workout'], tags: ['Push', 'Pull', 'Upper', 'Lower', 'Core'] },
+]
 
 function errorMessage(err: unknown): string {
   if (
@@ -22,8 +36,51 @@ function errorMessage(err: unknown): string {
   return String(err)
 }
 
-export function WorkoutContextEditor({ uid, workoutId, initialText }: Props) {
+function normalizeTag(raw: string): string | null {
+  const cleaned = raw.replace(/\s+/g, ' ').trim()
+  if (!cleaned) return null
+  return cleaned
+    .split(' ')
+    .map((p) => p.charAt(0).toUpperCase() + p.slice(1).toLowerCase())
+    .join(' ')
+    .slice(0, 24)
+}
+
+function uniqueTags(tags: string[]): string[] {
+  const seen = new Set<string>()
+  const out: string[] = []
+  for (const tag of tags) {
+    const normalized = normalizeTag(tag)
+    if (!normalized) continue
+    const key = normalized.toLowerCase()
+    if (seen.has(key)) continue
+    seen.add(key)
+    out.push(normalized)
+  }
+  return out
+}
+
+function defaultTagsForWorkout(type?: string | null): string[] {
+  if (!type) return ['Push', 'Pull', 'Upper', 'Lower', 'Recovery']
+  const normalized = type.toLowerCase()
+  const matched = DEFAULT_TAGS_BY_TYPE.find((entry) => entry.match.some((m) => normalized.includes(m)))
+  return matched?.tags ?? ['Push', 'Pull', 'Upper', 'Lower', 'Recovery']
+}
+
+function tagToneClass(tag: string): string {
+  const lower = tag.toLowerCase()
+  if (['push', 'pull', 'upper', 'lower', 'core', 'strength'].includes(lower)) return 'strength'
+  if (['intervals', 'tempo', 'climbing'].includes(lower)) return 'intensity'
+  if (['recovery', 'easy', 'mobility'].includes(lower)) return 'recovery'
+  return 'focus'
+}
+
+export function WorkoutContextEditor({ uid, workoutId, workoutType, initialText, initialTags, initialVoiceUrl }: Props) {
   const [text, setText] = useState(initialText ?? '')
+  const [selectedTags, setSelectedTags] = useState<string[]>(() => uniqueTags(initialTags ?? []).slice(0, MAX_SELECTED_TAGS))
+  const [tagInput, setTagInput] = useState('')
+  const [suggestedTags, setSuggestedTags] = useState<string[]>([])
+  const [voiceUrl, setVoiceUrl] = useState<string | null>(initialVoiceUrl ?? null)
   const [saving, setSaving] = useState(false)
   const [recording, setRecording] = useState(false)
   const [uploading, setUploading] = useState(false)
@@ -35,13 +92,93 @@ export function WorkoutContextEditor({ uid, workoutId, initialText }: Props) {
 
   const workoutRef = useMemo(() => doc(db, 'users', uid, 'workouts', workoutId), [uid, workoutId])
 
+  useEffect(() => {
+    const typeDefaults = defaultTagsForWorkout(workoutType)
+    let disposed = false
+
+    const loadSuggestions = async () => {
+      try {
+        const recentSnap = await getDocs(
+          query(
+            collection(db, 'users', uid, 'workouts'),
+            orderBy('strava.startDate', 'desc'),
+            firestoreLimit(20),
+          ),
+        )
+        if (disposed) return
+
+        const counts = new Map<string, number>()
+        for (const d of recentSnap.docs) {
+          const data = d.data() as { context?: { tags?: unknown } }
+          if (!Array.isArray(data.context?.tags)) continue
+          for (const raw of data.context.tags) {
+            if (typeof raw !== 'string') continue
+            const tag = normalizeTag(raw)
+            if (!tag) continue
+            counts.set(tag, (counts.get(tag) ?? 0) + 1)
+          }
+        }
+
+        const personal = Array.from(counts.entries())
+          .sort((a, b) => b[1] - a[1])
+          .map(([tag]) => tag)
+
+        const merged = uniqueTags([...typeDefaults, ...personal]).slice(0, MAX_SUGGESTED_TAGS)
+        setSuggestedTags(merged.length ? merged : typeDefaults.slice(0, MAX_SUGGESTED_TAGS))
+      } catch {
+        if (!disposed) setSuggestedTags(typeDefaults.slice(0, MAX_SUGGESTED_TAGS))
+      }
+    }
+
+    void loadSuggestions()
+    return () => {
+      disposed = true
+    }
+  }, [uid, workoutType])
+
+  useEffect(() => {
+    if (status !== TAG_LIMIT_STATUS) return
+    const timer = window.setTimeout(() => setStatus(null), 2500)
+    return () => window.clearTimeout(timer)
+  }, [status])
+
+  const displayedTags = useMemo(
+    () => uniqueTags([...selectedTags, ...suggestedTags]),
+    [selectedTags, suggestedTags],
+  )
+
+  const toggleTag = (tag: string) => {
+    setStatus(null)
+    setSelectedTags((prev) => {
+      const exists = prev.some((t) => t.toLowerCase() === tag.toLowerCase())
+      if (exists) return prev.filter((t) => t.toLowerCase() !== tag.toLowerCase())
+      if (prev.length >= MAX_SELECTED_TAGS) {
+        setStatus(TAG_LIMIT_STATUS)
+        return prev
+      }
+      return [...prev, tag]
+    })
+  }
+
+  const addTypedTag = () => {
+    const normalized = normalizeTag(tagInput)
+    if (!normalized) return
+    toggleTag(normalized)
+    setTagInput('')
+  }
+
   const saveText = async () => {
     try {
       setError(null)
       setStatus(null)
       setSaving(true)
       await updateDoc(workoutRef, {
-        context: { text: text.trim(), updatedAt: serverTimestamp() },
+        context: {
+          text: text.trim(),
+          tags: selectedTags,
+          voiceUrl: voiceUrl ?? null,
+          updatedAt: serverTimestamp(),
+        },
       })
 
       const fn = httpsCallable(functions, 'buildFitnessPersona')
@@ -100,6 +237,7 @@ export function WorkoutContextEditor({ uid, workoutId, initialText }: Props) {
       const r = storageRef(storage, path)
       await uploadBytes(r, blob, { contentType: mimeType })
       const url = await getDownloadURL(r)
+      setVoiceUrl(url)
 
       setStatus('Transcribing...')
       const reader = new FileReader()
@@ -133,6 +271,7 @@ export function WorkoutContextEditor({ uid, workoutId, initialText }: Props) {
       await updateDoc(workoutRef, {
         context: {
           text: newText,
+          tags: selectedTags,
           voiceUrl: url,
           updatedAt: serverTimestamp(),
         },
@@ -163,6 +302,46 @@ export function WorkoutContextEditor({ uid, workoutId, initialText }: Props) {
           rows={3}
         />
       </label>
+
+      <div className="stack" style={{ gap: 8 }}>
+        <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center' }}>
+          <span className="label">Quick tags</span>
+          <span className="muted" style={{ fontSize: 12 }}>
+            {selectedTags.length}/{MAX_SELECTED_TAGS}
+          </span>
+        </div>
+        <div className="contextTagList">
+          {displayedTags.map((tag) => {
+            const isActive = selectedTags.some((t) => t.toLowerCase() === tag.toLowerCase())
+            return (
+              <button
+                key={tag}
+                type="button"
+                className={`contextTag contextTag--${tagToneClass(tag)} ${isActive ? 'active' : ''}`}
+                onClick={() => toggleTag(tag)}
+              >
+                {tag}
+              </button>
+            )
+          })}
+        </div>
+        <div className="row" style={{ gap: 8 }}>
+          <input
+            value={tagInput}
+            onChange={(e) => setTagInput(e.target.value)}
+            placeholder="Add custom tag"
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault()
+                addTypedTag()
+              }
+            }}
+          />
+          <button type="button" className="secondary" onClick={addTypedTag}>
+            Add
+          </button>
+        </div>
+      </div>
 
       <div className="row">
         <button type="button" onClick={() => void saveText()} disabled={saving}>

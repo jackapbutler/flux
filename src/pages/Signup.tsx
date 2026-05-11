@@ -33,7 +33,7 @@ export function Signup() {
       setLoading(true)
       setError(null)
       await createUserWithEmailAndPassword(auth, email.trim(), password)
-      nav('/onboarding', { replace: true })
+      nav('/app', { replace: true })
     } catch (e) {
       setError(formatAuthError(e))
     } finally {
@@ -46,7 +46,7 @@ export function Signup() {
       setLoading(true)
       setError(null)
       await signInWithPopup(auth, googleProvider)
-      nav('/onboarding', { replace: true })
+      nav('/app', { replace: true })
     } catch (e) {
       setError(formatAuthError(e))
     } finally {
