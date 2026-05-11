@@ -471,6 +471,165 @@ function computeWorkoutPatterns(workouts: Array<Record<string, unknown>>): strin
   return lines.join('\n')
 }
 
+type RecommendationWorkoutContext = {
+  id: string
+  type: string | null
+  sportType: string | null
+  name: string | null
+  startDate: string | null
+  workoutDateUtc: string | null
+  dayOfWeekUtc: string | null
+  daysAgo: number | null
+  elapsedTime: number | null
+  movingTime: number | null
+  distance: number | null
+  elevationGain: number | null
+  avgSpeed: number | null
+  maxSpeed: number | null
+  avgCadence: number | null
+  avgHR: number | null
+  maxHR: number | null
+  avgPower: number | null
+  weightedAvgPower: number | null
+  maxPower: number | null
+  kilojoules: number | null
+  calories: number | null
+  sufferScore: number | null
+  trainer: boolean | null
+  commute: boolean | null
+  manual: boolean | null
+  private: boolean | null
+  hasHeartrate: boolean | null
+  deviceName: string | null
+  contextText: string | null
+  contextTags: string[] | null
+}
+
+type CurrentDateContext = {
+  nowIsoUtc: string
+  dateUtc: string
+  dayOfWeekUtc: string
+}
+
+const dayNamesUtc = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
+
+function utcMidnightMs(date: Date): number {
+  return Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate())
+}
+
+function workoutDateDetails(startDate: string | null, now: Date): {
+  workoutDateUtc: string | null
+  dayOfWeekUtc: string | null
+  daysAgo: number | null
+} {
+  if (!startDate) {
+    return { workoutDateUtc: null, dayOfWeekUtc: null, daysAgo: null }
+  }
+  const parsed = new Date(startDate)
+  if (Number.isNaN(parsed.getTime())) {
+    return { workoutDateUtc: null, dayOfWeekUtc: null, daysAgo: null }
+  }
+  const msInDay = 24 * 60 * 60 * 1000
+  const daysAgo = Math.max(0, Math.floor((utcMidnightMs(now) - utcMidnightMs(parsed)) / msInDay))
+  return {
+    workoutDateUtc: parsed.toISOString().slice(0, 10),
+    dayOfWeekUtc: dayNamesUtc[parsed.getUTCDay()],
+    daysAgo,
+  }
+}
+
+async function getRecentRecommendationContext(uid: string): Promise<{
+  currentDateContext: CurrentDateContext
+  workouts: RecommendationWorkoutContext[]
+  contextCount: number
+}> {
+  const now = new Date()
+  const workoutsSnap = await db
+    .collection(`users/${uid}/workouts`)
+    .orderBy('strava.startDate', 'desc')
+    .limit(10)
+    .get()
+
+  const workouts = workoutsSnap.docs.map((d) => {
+    const data = (d.data() ?? {}) as {
+      strava?: {
+        type?: unknown
+        sportType?: unknown
+        name?: unknown
+        startDate?: unknown
+        distance?: unknown
+        elapsedTime?: unknown
+        movingTime?: unknown
+        elevationGain?: unknown
+        avgSpeed?: unknown
+        maxSpeed?: unknown
+        avgCadence?: unknown
+        avgHR?: unknown
+        maxHR?: unknown
+        avgPower?: unknown
+        weightedAvgPower?: unknown
+        maxPower?: unknown
+        kilojoules?: unknown
+        calories?: unknown
+        sufferScore?: unknown
+        trainer?: unknown
+        commute?: unknown
+        manual?: unknown
+        private?: unknown
+        hasHeartrate?: unknown
+        deviceName?: unknown
+      }
+      context?: { text?: unknown; tags?: unknown }
+    }
+
+    const startDate = typeof data.strava?.startDate === 'string' ? data.strava.startDate : null
+    const dateDetails = workoutDateDetails(startDate, now)
+
+    return {
+      id: d.id,
+      type: typeof data.strava?.type === 'string' ? data.strava.type : null,
+      sportType: typeof data.strava?.sportType === 'string' ? data.strava.sportType : null,
+      name: typeof data.strava?.name === 'string' ? data.strava.name : null,
+      startDate,
+      workoutDateUtc: dateDetails.workoutDateUtc,
+      dayOfWeekUtc: dateDetails.dayOfWeekUtc,
+      daysAgo: dateDetails.daysAgo,
+      distance: typeof data.strava?.distance === 'number' ? data.strava.distance : null,
+      elapsedTime: typeof data.strava?.elapsedTime === 'number' ? data.strava.elapsedTime : null,
+      movingTime: typeof data.strava?.movingTime === 'number' ? data.strava.movingTime : null,
+      elevationGain: typeof data.strava?.elevationGain === 'number' ? data.strava.elevationGain : null,
+      avgSpeed: typeof data.strava?.avgSpeed === 'number' ? data.strava.avgSpeed : null,
+      maxSpeed: typeof data.strava?.maxSpeed === 'number' ? data.strava.maxSpeed : null,
+      avgCadence: typeof data.strava?.avgCadence === 'number' ? data.strava.avgCadence : null,
+      avgHR: typeof data.strava?.avgHR === 'number' ? data.strava.avgHR : null,
+      maxHR: typeof data.strava?.maxHR === 'number' ? data.strava.maxHR : null,
+      avgPower: typeof data.strava?.avgPower === 'number' ? data.strava.avgPower : null,
+      weightedAvgPower: typeof data.strava?.weightedAvgPower === 'number' ? data.strava.weightedAvgPower : null,
+      maxPower: typeof data.strava?.maxPower === 'number' ? data.strava.maxPower : null,
+      kilojoules: typeof data.strava?.kilojoules === 'number' ? data.strava.kilojoules : null,
+      calories: typeof data.strava?.calories === 'number' ? data.strava.calories : null,
+      sufferScore: typeof data.strava?.sufferScore === 'number' ? data.strava.sufferScore : null,
+      trainer: typeof data.strava?.trainer === 'boolean' ? data.strava.trainer : null,
+      commute: typeof data.strava?.commute === 'boolean' ? data.strava.commute : null,
+      manual: typeof data.strava?.manual === 'boolean' ? data.strava.manual : null,
+      private: typeof data.strava?.private === 'boolean' ? data.strava.private : null,
+      hasHeartrate: typeof data.strava?.hasHeartrate === 'boolean' ? data.strava.hasHeartrate : null,
+      deviceName: typeof data.strava?.deviceName === 'string' ? data.strava.deviceName : null,
+      contextText: typeof data.context?.text === 'string' ? data.context.text : null,
+      contextTags: readContextTags(data.context?.tags),
+    }
+  })
+
+  const contextCount = workouts.filter((w) => Boolean(w.contextText)).length
+  const currentDateContext: CurrentDateContext = {
+    nowIsoUtc: now.toISOString(),
+    dateUtc: now.toISOString().slice(0, 10),
+    dayOfWeekUtc: dayNamesUtc[now.getUTCDay()],
+  }
+
+  return { currentDateContext, workouts, contextCount }
+}
+
 export const buildFitnessPersona = onCall(
   { secrets: [geminiApiKey], invoker: 'public' },
   async (req) => {
@@ -512,48 +671,10 @@ export const recommendNextWorkout = onCall(
     const persona =
       typeof userData.fitnessPersonaText === 'string' ? userData.fitnessPersonaText.trim() : ''
 
-    const workoutsSnap = await db
-      .collection(`users/${uid}/workouts`)
-      .orderBy('strava.startDate', 'desc')
-      .limit(10)
-      .get()
-
-    const workouts = workoutsSnap.docs.map((d) => {
-      const data = (d.data() ?? {}) as {
-        strava?: {
-          type?: unknown
-          name?: unknown
-          startDate?: unknown
-          distance?: unknown
-          elapsedTime?: unknown
-          movingTime?: unknown
-          avgHR?: unknown
-          avgPower?: unknown
-          trainer?: unknown
-          manual?: unknown
-        }
-        context?: { text?: unknown; tags?: unknown }
-      }
-
-      return {
-        type: typeof data.strava?.type === 'string' ? data.strava.type : null,
-        name: typeof data.strava?.name === 'string' ? data.strava.name : null,
-        startDate: typeof data.strava?.startDate === 'string' ? data.strava.startDate : null,
-        distance: typeof data.strava?.distance === 'number' ? data.strava.distance : null,
-        elapsedTime: typeof data.strava?.elapsedTime === 'number' ? data.strava.elapsedTime : null,
-        movingTime: typeof data.strava?.movingTime === 'number' ? data.strava.movingTime : null,
-        avgHR: typeof data.strava?.avgHR === 'number' ? data.strava.avgHR : null,
-        avgPower: typeof data.strava?.avgPower === 'number' ? data.strava.avgPower : null,
-        trainer: typeof data.strava?.trainer === 'boolean' ? data.strava.trainer : null,
-        manual: typeof data.strava?.manual === 'boolean' ? data.strava.manual : null,
-        contextText: typeof data.context?.text === 'string' ? data.context.text : null,
-        contextTags: readContextTags(data.context?.tags),
-      }
-    })
+    const { currentDateContext, workouts, contextCount } = await getRecentRecommendationContext(uid)
 
     const guidance = readGuidanceText()
     const apiKey = requireGeminiKey()
-    const contextCount = workouts.filter((w) => Boolean(w.contextText)).length
 
     const prompt =
       `You are Flux, a evidence-based personal trainer providing professional guidance.\n` +
@@ -569,20 +690,22 @@ export const recommendNextWorkout = onCall(
       `WORKOUT_GUIDANCE.TXT:\n${guidance || '(missing guidance)'}\n\n` +
       `Goal:\n${goalText || '(not set)'}\n\n` +
       `LONG-TERM FITNESS PERSONA:\n${persona || '(not built yet)'}\n\n` +
+      `CURRENT DATE CONTEXT (UTC):\n${JSON.stringify(currentDateContext, null, 2)}\n\n` +
       `IMMEDIATE CONTEXT (Last 10 Workouts):\n` +
-      `Context coverage: ${contextCount}/10 workouts include user notes.\n` +
+      `Context coverage: ${contextCount}/${workouts.length} workouts include user notes (count may be below 10 for new users).\n` +
       `Recent workouts (JSON):\n${JSON.stringify(workouts, null, 2)}\n\n` +
       `RECOMMENDATION STRATEGY:\n` +
       `1. Assess recent load: sum duration/intensity of last 3-5 workouts\n` +
       `2. Check for fatigue signals: user notes mentioning soreness, fatigue, or reduced energy\n` +
       `3. Apply periodization: if recent intensity high, recommend moderate/recovery; if recent load light, recommend challenging session\n` +
-      `4. Use RPE guidance: specify intensity as "RPE X/10" (easier sessions RPE 5-6, moderate 6-7, challenging 7-8+)\n` +
-      `5. Include warm-up/cool-down appropriate to intensity\n` +
-      `6. Provide reasoning: why this workout now (progressive vs recovery, modality, energy system)\n` +
-      `7. Safety emphasis: highlight any cautions based on recent history (e.g., "reduce intensity if soreness high")\n` +
-      `8. Set workout type: choose from "run", "ride", "swim", or other appropriate activity\n` +
-      `9. NO SCHEDULING: Do not mention specific days (e.g., "tomorrow"), times of day, or make assumptions about the user's availability. Focus only on the workout recommendation itself.\n` +
-      `10. VOLUME & INTENSITY: Analyze historical data by modality (runs vs rides vs swims vs weights) to anchor recommendations:\n` +
+      `4. Use current date and workout date fields (startDate ISO timestamp, workoutDateUtc date-only, plus dayOfWeekUtc/daysAgo) to reason about recency and recovery windows\n` +
+      `5. Use RPE guidance: specify intensity as "RPE X/10" (easier sessions RPE 5-6, moderate 6-7, challenging 7-8+)\n` +
+      `6. Include warm-up/cool-down appropriate to intensity\n` +
+      `7. Provide reasoning: why this workout now (progressive vs recovery, modality, energy system)\n` +
+      `8. Safety emphasis: highlight any cautions based on recent history (e.g., "reduce intensity if soreness high")\n` +
+      `9. Set workout type: choose from "run", "ride", "swim", or other appropriate activity\n` +
+      `10. NO SCHEDULING: Do not mention specific days (e.g., "tomorrow"), times of day, or make assumptions about the user's availability. Focus only on the workout recommendation itself.\n` +
+      `11. VOLUME & INTENSITY: Analyze historical data by modality (runs vs rides vs swims vs weights) to anchor recommendations:\n` +
       `   - If user has logged multiple runs: check avg duration, typical effort patterns, recovery needs between runs\n` +
       `   - If user has logged multiple swims: infer pool/open water preference, stroke preferences, typical distances\n` +
       `   - If user has logged strength: identify primary lifts, typical session duration, volume/intensity patterns\n` +
@@ -668,6 +791,16 @@ export const refineRecommendation = onCall({ secrets: [geminiApiKey] }, async (r
       )
     })
 
+    const uid = req.auth.uid
+    const userSnap = await db.doc(`users/${uid}`).get()
+    const userData = (userSnap.data() ?? {}) as {
+      goalText?: unknown
+      fitnessPersonaText?: unknown
+    }
+    const goalText = typeof userData.goalText === 'string' ? userData.goalText.trim() : ''
+    const persona =
+      typeof userData.fitnessPersonaText === 'string' ? userData.fitnessPersonaText.trim() : ''
+    const { currentDateContext, workouts, contextCount } = await getRecentRecommendationContext(uid)
     const apiKey = requireGeminiKey()
 
     // Build conversation context for the model
@@ -688,7 +821,14 @@ export const refineRecommendation = onCall({ secrets: [geminiApiKey] }, async (r
       `- NO SCHEDULING: Do not mention specific days (e.g., "tomorrow"), times of day, or make assumptions about the user's availability.\n` +
       `- Volume & Intensity patterns: reference historical workout durations and modality-specific patterns to anchor recommendations\n` +
       `  (e.g., if they typically run 30-40min, suggest volume within that range unless they explicitly ask differently)\n` +
+      `- Use current date context and workout recency fields (startDate/workoutDateUtc/dayOfWeekUtc/daysAgo) to avoid loading too hard too soon\n` +
       `- ENCOURAGE CONTEXT: If you lack specific data to make a great recommendation (e.g., you don't know if a "Gym" session was upper or lower body), proactively ask the user to "Add context" to that specific workout in their history. Explain that this helps you provide better-targeted sessions.\n\n` +
+      `Goal:\n${goalText || '(not set)'}\n\n` +
+      `LONG-TERM FITNESS PERSONA:\n${persona || '(not built yet)'}\n\n` +
+      `CURRENT DATE CONTEXT (UTC):\n${JSON.stringify(currentDateContext, null, 2)}\n\n` +
+      `IMMEDIATE CONTEXT (Last 10 Workouts):\n` +
+      `Context coverage: ${contextCount}/${workouts.length} workouts include user notes (count may be below 10 for new users).\n` +
+      `Recent workouts (JSON):\n${JSON.stringify(workouts, null, 2)}\n\n` +
       `Conversation history:\n${conversationContext}\n\n` +
       `New constraint/question from user: ${userMessage}\n\n` +
       `Adjust the recommendation to honor the user's input while maintaining training principles.\n` +
