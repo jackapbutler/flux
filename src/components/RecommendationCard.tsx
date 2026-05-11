@@ -6,6 +6,14 @@ type Props = {
   index: number
 }
 
+const MAX_PREVIEW_LENGTH = 120
+
+function getOverviewPreview(mainSet: string): string {
+  const compact = mainSet.trim()
+  if (compact.length <= MAX_PREVIEW_LENGTH) return compact
+  return `${compact.slice(0, MAX_PREVIEW_LENGTH - 3).trimEnd()}...`
+}
+
 function getIntensityColor(intensity: string): string {
   const lower = intensity.toLowerCase()
   if (lower.includes('1') || lower.includes('2') || lower.includes('easy') || lower.includes('low')) {
@@ -22,6 +30,8 @@ function getIntensityColor(intensity: string): string {
 
 export function RecommendationCard({ option, index }: Props) {
   const intensityColor = getIntensityColor(option.intensity)
+  const topReason = option.why.length > 0 ? option.why[0] : undefined
+  const overviewPreview = getOverviewPreview(option.mainSet)
 
   return (
     <div className="workoutOption">
@@ -48,29 +58,45 @@ export function RecommendationCard({ option, index }: Props) {
         </div>
       </div>
 
-      <div className="optionSection">
-        <div className="sectionLabel">Warmup</div>
-        <div className="sectionContent">{option.warmup}</div>
+      <div className="optionSummary">
+        <div className="sectionLabel">Overview</div>
+        <div className="optionPreview">{overviewPreview}</div>
       </div>
 
-      <div className="optionSection">
-        <div className="sectionLabel">Main set</div>
-        <div className="sectionContent">{option.mainSet}</div>
-      </div>
+      {topReason ? (
+        <div className="optionWhy">
+          <div className="sectionLabel">Why this workout</div>
+          <p className="whyPreview">{topReason}</p>
+        </div>
+      ) : null}
 
-      <div className="optionSection">
-        <div className="sectionLabel">Cooldown</div>
-        <div className="sectionContent">{option.cooldown}</div>
-      </div>
+      <details className="optionDetails">
+        <summary className="optionToggle">View workout details</summary>
 
-      <div className="optionWhy">
-        <div className="sectionLabel">Why this workout</div>
-        <ul className="whyList">
-          {option.why.map((reason, i) => (
-            <li key={i}>{reason}</li>
-          ))}
-        </ul>
-      </div>
+        <div className="optionSection">
+          <div className="sectionLabel">Warmup</div>
+          <div className="sectionContent">{option.warmup}</div>
+        </div>
+
+        <div className="optionSection">
+          <div className="sectionLabel">Main set</div>
+          <div className="sectionContent">{option.mainSet}</div>
+        </div>
+
+        <div className="optionSection">
+          <div className="sectionLabel">Cooldown</div>
+          <div className="sectionContent">{option.cooldown}</div>
+        </div>
+
+        <div className="optionSection">
+          <div className="sectionLabel">Full workout rationale</div>
+          <ul className="whyList">
+            {option.why.map((reason, i) => (
+              <li key={i}>{reason}</li>
+            ))}
+          </ul>
+        </div>
+      </details>
     </div>
   )
 }
