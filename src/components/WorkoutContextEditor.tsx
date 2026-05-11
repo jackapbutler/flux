@@ -15,6 +15,7 @@ type Props = {
 
 const MAX_SUGGESTED_TAGS = 6
 const MAX_SELECTED_TAGS = 6
+const TAG_LIMIT_STATUS = `Keep it focused: up to ${MAX_SELECTED_TAGS} tags.`
 
 const DEFAULT_TAGS_BY_TYPE: Array<{ match: string[]; tags: string[] }> = [
   { match: ['run'], tags: ['Recovery', 'Easy', 'Tempo', 'Intervals', 'Long'] },
@@ -122,7 +123,8 @@ export function WorkoutContextEditor({ uid, workoutId, workoutType, initialText,
           .sort((a, b) => b[1] - a[1])
           .map(([tag]) => tag)
 
-        setSuggestedTags(uniqueTags([...typeDefaults, ...personal]).slice(0, MAX_SUGGESTED_TAGS))
+        const merged = uniqueTags([...typeDefaults, ...personal]).slice(0, MAX_SUGGESTED_TAGS)
+        setSuggestedTags(merged.length ? merged : typeDefaults.slice(0, MAX_SUGGESTED_TAGS))
       } catch {
         if (!disposed) setSuggestedTags(typeDefaults.slice(0, MAX_SUGGESTED_TAGS))
       }
@@ -135,7 +137,7 @@ export function WorkoutContextEditor({ uid, workoutId, workoutType, initialText,
   }, [uid, workoutType])
 
   useEffect(() => {
-    if (!status?.startsWith('Keep it focused:')) return
+    if (status !== TAG_LIMIT_STATUS) return
     const timer = window.setTimeout(() => setStatus(null), 2500)
     return () => window.clearTimeout(timer)
   }, [status])
@@ -151,7 +153,7 @@ export function WorkoutContextEditor({ uid, workoutId, workoutType, initialText,
       const exists = prev.some((t) => t.toLowerCase() === tag.toLowerCase())
       if (exists) return prev.filter((t) => t.toLowerCase() !== tag.toLowerCase())
       if (prev.length >= MAX_SELECTED_TAGS) {
-        setStatus(`Keep it focused: up to ${MAX_SELECTED_TAGS} tags.`)
+        setStatus(TAG_LIMIT_STATUS)
         return prev
       }
       return [...prev, tag]
@@ -174,7 +176,7 @@ export function WorkoutContextEditor({ uid, workoutId, workoutType, initialText,
         context: {
           text: text.trim(),
           tags: selectedTags,
-          ...(voiceUrl ? { voiceUrl } : {}),
+          voiceUrl: voiceUrl ?? null,
           updatedAt: serverTimestamp(),
         },
       })
