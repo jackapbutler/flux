@@ -94,7 +94,7 @@ export function WorkoutContextEditor({ uid, workoutId, initialText }: Props) {
 
       const blob = new Blob(chunksRef.current, { type: 'audio/webm' })
       if (blob.size === 0) throw new Error('No audio captured')
-      const mimeType = blob.type || 'audio/webm'
+      const mimeType = (blob.type || 'audio/webm').split(';')[0].trim().toLowerCase()
 
       const path = `users/${uid}/workouts/${workoutId}/context-${Date.now()}.webm`
       const r = storageRef(storage, path)

@@ -734,8 +734,19 @@ export const transcribeWorkoutVoice = onCall({ secrets: [geminiApiKey] }, async 
   if (!audioBase64) {
     throw new HttpsError('invalid-argument', 'Missing audio data')
   }
-  const requestedMimeType = typeof req.data?.mimeType === 'string' ? req.data.mimeType.trim() : ''
-  const mimeType = /^audio\/[a-zA-Z0-9.+-]+$/.test(requestedMimeType) ? requestedMimeType : 'audio/webm'
+  const requestedMimeType = typeof req.data?.mimeType === 'string' ? req.data.mimeType.trim().toLowerCase() : ''
+  const normalizedMimeType = requestedMimeType.split(';')[0]
+  const allowedMimeTypes = new Set([
+    'audio/webm',
+    'audio/mp4',
+    'audio/mpeg',
+    'audio/mp3',
+    'audio/ogg',
+    'audio/wav',
+    'audio/x-wav',
+    'audio/aac',
+  ])
+  const mimeType = allowedMimeTypes.has(normalizedMimeType) ? normalizedMimeType : 'audio/webm'
 
   try {
     const apiKey = requireGeminiKey()
@@ -755,12 +766,35 @@ export const transcribeWorkoutVoice = onCall({ secrets: [geminiApiKey] }, async 
     const transcription = result.response.text().trim()
     return { transcription }
   } catch (e) {
+    const message = (e as Error)?.message || String(e)
+    const messageLower = message.toLowerCase()
     console.error('transcribeWorkoutVoice failed', {
       mimeType,
-      message: (e as Error)?.message || String(e),
+      message,
     })
     if (e instanceof HttpsError) throw e
-    throw new HttpsError('internal', 'Unable to transcribe audio right now. Please try again.')
+    if (
+      messageLower.includes('mime') ||
+      messageLower.includes('format') ||
+      messageLower.includes('invalid audio') ||
+      messageLower.includes('unsupported')
+    ) {
+      throw new HttpsError(
+        'invalid-argument',
+        'Unsupported audio format. Please try recording again.',
+      )
+    }
+    if (
+      messageLower.includes('too large') ||
+      messageLower.includes('payload') ||
+      messageLower.includes('request too large')
+    ) {
+      throw new HttpsError(
+        'invalid-argument',
+        'Voice note is too large to transcribe. Please record a shorter note and try again.',
+      )
+    }
+    throw new HttpsError('unavailable', 'Transcription service is temporarily unavailable. Please try again.')
   }
 })
 
