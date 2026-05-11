@@ -94,10 +94,11 @@ export function WorkoutContextEditor({ uid, workoutId, initialText }: Props) {
 
       const blob = new Blob(chunksRef.current, { type: 'audio/webm' })
       if (blob.size === 0) throw new Error('No audio captured')
+      const mimeType = blob.type || 'audio/webm'
 
       const path = `users/${uid}/workouts/${workoutId}/context-${Date.now()}.webm`
       const r = storageRef(storage, path)
-      await uploadBytes(r, blob, { contentType: 'audio/webm' })
+      await uploadBytes(r, blob, { contentType: mimeType })
       const url = await getDownloadURL(r)
 
       setStatus('Transcribing...')
@@ -111,13 +112,13 @@ export function WorkoutContextEditor({ uid, workoutId, initialText }: Props) {
       reader.readAsDataURL(blob)
       const audioBase64 = await base64Promise
 
-      const transcribeFn = httpsCallable<{ audio: string }, { transcription: string }>(
+      const transcribeFn = httpsCallable<{ audio: string; mimeType?: string }, { transcription: string }>(
         functions,
         'transcribeWorkoutVoice',
       )
       const {
         data: { transcription },
-      } = await transcribeFn({ audio: audioBase64 })
+      } = await transcribeFn({ audio: audioBase64, mimeType })
 
       const newText = transcription
         ? text.trim()

@@ -734,23 +734,34 @@ export const transcribeWorkoutVoice = onCall({ secrets: [geminiApiKey] }, async 
   if (!audioBase64) {
     throw new HttpsError('invalid-argument', 'Missing audio data')
   }
+  const requestedMimeType = typeof req.data?.mimeType === 'string' ? req.data.mimeType.trim() : ''
+  const mimeType = /^audio\/[a-zA-Z0-9.+-]+$/.test(requestedMimeType) ? requestedMimeType : 'audio/webm'
 
-  const apiKey = requireGeminiKey()
-  const genAI = new GoogleGenerativeAI(apiKey)
-  const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' })
+  try {
+    const apiKey = requireGeminiKey()
+    const genAI = new GoogleGenerativeAI(apiKey)
+    const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' })
 
-  const result = await model.generateContent([
-    {
-      inlineData: {
-        mimeType: 'audio/webm',
-        data: audioBase64,
+    const result = await model.generateContent([
+      {
+        inlineData: {
+          mimeType,
+          data: audioBase64,
+        },
       },
-    },
-    { text: 'Transcribe this workout voice note exactly. If there is no speech, return an empty string. Do not add any commentary.' },
-  ])
+      { text: 'Transcribe this workout voice note exactly. If there is no speech, return an empty string. Do not add any commentary.' },
+    ])
 
-  const transcription = result.response.text().trim()
-  return { transcription }
+    const transcription = result.response.text().trim()
+    return { transcription }
+  } catch (e) {
+    console.error('transcribeWorkoutVoice failed', {
+      mimeType,
+      message: (e as Error)?.message || String(e),
+    })
+    if (e instanceof HttpsError) throw e
+    throw new HttpsError('internal', 'Unable to transcribe audio right now. Please try again.')
+  }
 })
 
 export const stravaSyncRecent = onCall(
