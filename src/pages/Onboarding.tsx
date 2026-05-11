@@ -40,16 +40,9 @@ export function Onboarding() {
   const nav = useNavigate()
   const [params] = useSearchParams()
   const { user, profile } = useAuth()
-  const [goalText, setGoalText] = useState('')
+  const [goalDraft, setGoalDraft] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
-
-  // Sync goalText from profile on load
-  useEffect(() => {
-    if (profile?.goalText && !goalText) {
-      setGoalText(profile.goalText)
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [profile?.goalText])
+  const goalText = goalDraft ?? profile?.goalText ?? ''
   const [goalSaved, setGoalSaved] = useState<string | null>(null)
   const [syncing, setSyncing] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -83,11 +76,13 @@ export function Onboarding() {
       setError(null)
       setGoalSaved(null)
       setSaving(true)
+      const trimmedGoal = goalText.trim()
       await setDoc(
         userRef,
-        { goalText: goalText.trim(), updatedAt: serverTimestamp() },
+        { goalText: trimmedGoal, updatedAt: serverTimestamp() },
         { merge: true },
       )
+      setGoalDraft(trimmedGoal)
       setGoalSaved('Goal saved')
     } catch (e) {
       setError(errorMessage(e))
@@ -161,7 +156,7 @@ export function Onboarding() {
             <span>Fitness goal</span>
             <input
               value={goalText}
-              onChange={(e) => setGoalText(e.target.value)}
+              onChange={(e) => setGoalDraft(e.target.value)}
               placeholder="Build endurance, keep strength, train 4 days per week"
             />
           </label>

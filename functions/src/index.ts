@@ -630,98 +630,6 @@ async function getRecentRecommendationContext(uid: string): Promise<{
   return { currentDateContext, workouts, contextCount }
 }
 
-const lowerBodyKeywords = [
-  'leg',
-  'legs',
-  'lower body',
-  'lower-body',
-  'lower',
-  'quad',
-  'quads',
-  'hamstring',
-  'hamstrings',
-  'glute',
-  'glutes',
-  'calf',
-  'calves',
-  'squat',
-  'lunge',
-  'deadlift',
-].map((keyword) => keyword.toLowerCase())
-
-const hardEffortKeywords = [
-  'heavy',
-  'hard',
-  'max',
-  'maximal',
-  'intense',
-  'intensity',
-  'interval',
-  'sprint',
-  'failure',
-  'pr',
-  '1rm',
-  'rpe 8',
-  'rpe 9',
-  'rpe 10',
-].map((keyword) => keyword.toLowerCase())
-
-const fatigueKeywords = [
-  'fatigue',
-  'fatigued',
-  'tired',
-  'wrecked',
-  'sore',
-  'soreness',
-  'stiff',
-  'doms',
-  'pain',
-  'aching',
-].map((keyword) => keyword.toLowerCase())
-
-const MAX_RECOVERY_ALERTS = 3
-
-function includesAnyKeyword(text: string, keywords: string[]): boolean {
-  const normalizedText = text.toLowerCase()
-  return keywords.some((keyword) => normalizedText.includes(keyword))
-}
-
-function deriveRecoveryAlerts(workouts: RecommendationWorkoutContext[]): string[] {
-  const alerts: string[] = []
-
-  for (const workout of workouts) {
-    if (workout.daysAgo === null || workout.daysAgo > 2) continue
-    const text = [
-      workout.name ?? '',
-      workout.contextText ?? '',
-      ...(workout.contextTags ?? []),
-    ]
-      .join(' ')
-      .toLowerCase()
-
-    if (!text.trim()) continue
-
-    const hasLowerBodySignal = includesAnyKeyword(text, lowerBodyKeywords)
-    const hasHardEffortSignal = includesAnyKeyword(text, hardEffortKeywords)
-    const hasFatigueSignal = includesAnyKeyword(text, fatigueKeywords)
-
-    if (hasLowerBodySignal && (hasHardEffortSignal || hasFatigueSignal)) {
-      alerts.push(
-        `Recent lower-body strain detected ${workout.daysAgo} day(s) ago; avoid another heavy leg/lower-body session immediately.`,
-      )
-      continue
-    }
-
-    if (hasHardEffortSignal || hasFatigueSignal) {
-      alerts.push(
-        `Recent high fatigue/load signal detected ${workout.daysAgo} day(s) ago; reduce intensity or switch to recovery-focused work.`,
-      )
-    }
-  }
-
-  return Array.from(new Set(alerts)).slice(0, MAX_RECOVERY_ALERTS)
-}
-
 export const buildFitnessPersona = onCall(
   { secrets: [geminiApiKey], invoker: 'public' },
   async (req) => {
@@ -764,7 +672,6 @@ export const recommendNextWorkout = onCall(
       typeof userData.fitnessPersonaText === 'string' ? userData.fitnessPersonaText.trim() : ''
 
     const { currentDateContext, workouts, contextCount } = await getRecentRecommendationContext(uid)
-    const recoveryAlerts = deriveRecoveryAlerts(workouts)
 
     const guidance = readGuidanceText()
     const apiKey = requireGeminiKey()
@@ -791,7 +698,6 @@ export const recommendNextWorkout = onCall(
       `CURRENT DATE CONTEXT (UTC):\n${JSON.stringify(currentDateContext, null, 2)}\n\n` +
       `IMMEDIATE CONTEXT (Last 10 Workouts):\n` +
       `Context coverage: ${contextCount}/${workouts.length} workouts include user notes (count may be below 10 for new users).\n` +
-      `Recovery alerts:\n${recoveryAlerts.length ? recoveryAlerts.map((a, i) => `${i + 1}. ${a}`).join('\n') : '- none detected'}\n` +
       `Recent workouts (JSON):\n${JSON.stringify(workouts, null, 2)}\n\n` +
       `RECOMMENDATION STRATEGY:\n` +
       `1. Assess recent load: sum duration/intensity of last 3-5 workouts\n` +
@@ -809,8 +715,7 @@ export const recommendNextWorkout = onCall(
       `   - If user has logged multiple swims: infer pool/open water preference, stroke preferences, typical distances\n` +
       `   - If user has logged strength: identify primary lifts, typical session duration, volume/intensity patterns\n` +
       `   - Use past workout durations as anchors for volume (e.g., "last 5K run was 28min, recommend volume based on this")\n` +
-      `   - Suggest volume/intensity that fits their historical patterns AND progressive overload (e.g., +5-10% if appropriate)\n` +
-      `12. HARD-LEG-DAY SAFETY: if recent context indicates heavy/fatigued lower-body work in last 48h, do not prescribe another heavy lower-body session; shift to upper body, technique, mobility, or easy aerobic recovery.\n\n` +
+      `   - Suggest volume/intensity that fits their historical patterns AND progressive overload (e.g., +5-10% if appropriate)\n\n` +
       `Return ONLY valid JSON (no markdown, no extra text) matching this schema:\n` +
       `{\n` +
       `  "options": [\n` +
@@ -901,7 +806,6 @@ export const refineRecommendation = onCall({ secrets: [geminiApiKey] }, async (r
     const persona =
       typeof userData.fitnessPersonaText === 'string' ? userData.fitnessPersonaText.trim() : ''
     const { currentDateContext, workouts, contextCount } = await getRecentRecommendationContext(uid)
-    const recoveryAlerts = deriveRecoveryAlerts(workouts)
     const apiKey = requireGeminiKey()
 
     // Build conversation context for the model
@@ -928,14 +832,12 @@ export const refineRecommendation = onCall({ secrets: [geminiApiKey] }, async (r
       `  - title <= 6 words\n` +
       `  - duration/intensity <= 10 words each\n` +
       `  - warmup/mainSet/cooldown <= 22 words each\n` +
-      `  - each "why" bullet <= 14 words\n` +
-      `- HARD-LEG-DAY SAFETY: if recent context indicates heavy/fatigued lower-body work in last 48h, do not prescribe another heavy lower-body session; shift to upper body, technique, mobility, or easy aerobic recovery.\n\n` +
+      `  - each "why" bullet <= 14 words\n\n` +
       `Goal:\n${goalText || '(not set)'}\n\n` +
       `LONG-TERM FITNESS PERSONA:\n${persona || '(not built yet)'}\n\n` +
       `CURRENT DATE CONTEXT (UTC):\n${JSON.stringify(currentDateContext, null, 2)}\n\n` +
       `IMMEDIATE CONTEXT (Last 10 Workouts):\n` +
       `Context coverage: ${contextCount}/${workouts.length} workouts include user notes (count may be below 10 for new users).\n` +
-      `Recovery alerts:\n${recoveryAlerts.length ? recoveryAlerts.map((a, i) => `${i + 1}. ${a}`).join('\n') : '- none detected'}\n` +
       `Recent workouts (JSON):\n${JSON.stringify(workouts, null, 2)}\n\n` +
       `Conversation history:\n${conversationContext}\n\n` +
       `New constraint/question from user: ${userMessage}\n\n` +
