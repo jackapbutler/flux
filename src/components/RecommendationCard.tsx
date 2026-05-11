@@ -48,29 +48,47 @@ export function RecommendationCard({ option, index }: Props) {
         </div>
       </div>
 
-      <div className="optionSection">
-        <div className="sectionLabel">Warmup</div>
-        <div className="sectionContent">{option.warmup}</div>
-      </div>
-
-      <div className="optionSection">
-        <div className="sectionLabel">Main set</div>
-        <div className="sectionContent">{option.mainSet}</div>
-      </div>
-
-      <div className="optionSection">
-        <div className="sectionLabel">Cooldown</div>
-        <div className="sectionContent">{option.cooldown}</div>
+      <div className="optionSummary">
+        <div className="sectionLabel">Overview</div>
+        <div className="optionPreview">Structured session with warmup, main set, and cooldown.</div>
       </div>
 
       <div className="optionWhy">
         <div className="sectionLabel">Why this workout</div>
         <ul className="whyList">
-          {option.why.map((reason, i) => (
+          {option.why.slice(0, 1).map((reason, i) => (
             <li key={i}>{reason}</li>
           ))}
         </ul>
       </div>
+
+      <details className="optionDetails">
+        <summary className="optionToggle">View workout details</summary>
+
+        <div className="optionSection">
+          <div className="sectionLabel">Warmup</div>
+          <div className="sectionContent">{option.warmup}</div>
+        </div>
+
+        <div className="optionSection">
+          <div className="sectionLabel">Main set</div>
+          <div className="sectionContent">{option.mainSet}</div>
+        </div>
+
+        <div className="optionSection">
+          <div className="sectionLabel">Cooldown</div>
+          <div className="sectionContent">{option.cooldown}</div>
+        </div>
+
+        <div className="optionSection">
+          <div className="sectionLabel">All workout reasons</div>
+          <ul className="whyList">
+            {option.why.map((reason, i) => (
+              <li key={i}>{reason}</li>
+            ))}
+          </ul>
+        </div>
+      </details>
     </div>
   )
 }

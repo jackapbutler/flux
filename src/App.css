@@ -15,7 +15,7 @@
 }
 
 .header .logo {
-  font-size: 24px;
+  font-size: 22px;
   font-weight: 800;
   color: var(--text-h);
   letter-spacing: -1px;
@@ -27,7 +27,7 @@
 
 .brandTagline {
   margin-top: 2px;
-  font-size: 13px;
+  font-size: 12px;
   color: var(--muted);
   max-width: 480px;
 }
@@ -54,13 +54,13 @@
 
 .card.hero h2 {
   color: white;
-  font-size: 32px;
+  font-size: 28px;
   margin-bottom: 12px;
 }
 
 .card.hero .muted {
   color: rgba(255, 255, 255, 0.9);
-  font-size: 16px;
+  font-size: 14px;
   max-width: 500px;
 }
 
@@ -89,7 +89,7 @@
 }
 
 .metricValue {
-  font-size: 24px;
+  font-size: 22px;
   font-weight: 800;
 }
 
@@ -146,21 +146,21 @@
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: 20px;
-  padding: 32px;
+  padding: 24px;
   display: flex;
   flex-direction: column;
-  gap: 24px;
+  gap: 18px;
   position: relative;
 }
 
 .optionHeader {
   display: flex;
-  gap: 20px;
+  gap: 16px;
 }
 
 .workoutIconWrapper {
-  width: 56px;
-  height: 56px;
+  width: 48px;
+  height: 48px;
   background: var(--accent-bg);
   border-radius: 16px;
   display: flex;
@@ -184,14 +184,14 @@
 }
 
 .optionTitle {
-  font-size: 24px;
+  font-size: 20px;
   margin: 4px 0 0;
 }
 
 .optionMetrics {
   display: flex;
-  gap: 32px;
-  padding: 20px;
+  gap: 24px;
+  padding: 16px;
   background: var(--surface-2);
   border-radius: 16px;
 }
@@ -217,15 +217,57 @@
 }
 
 .sectionContent {
-  font-size: 16px;
+  font-size: 14px;
   color: var(--text-h);
-  font-weight: 500;
+  font-weight: 450;
+}
+
+.optionSummary {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.optionPreview {
+  font-size: 13px;
+  color: var(--text);
+}
+
+.optionDetails {
+  border-top: 1px solid var(--border);
+  padding-top: 16px;
+}
+
+.optionDetails[open] {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.optionToggle {
+  cursor: pointer;
+  color: var(--accent);
+  font-size: 13px;
+  font-weight: 700;
+  list-style: none;
+}
+
+.optionToggle::-webkit-details-marker {
+  display: none;
+}
+
+.optionToggle::before {
+  content: "▸";
+  margin-right: 6px;
+}
+
+.optionDetails[open] .optionToggle::before {
+  content: "▾";
 }
 
 .optionWhy {
   border-top: 1px solid var(--border);
-  padding-top: 24px;
-  margin-top: 8px;
+  padding-top: 16px;
 }
 
 .whyList {
@@ -240,7 +282,7 @@
 .whyList li {
   position: relative;
   padding-left: 28px;
-  font-size: 15px;
+  font-size: 13px;
   font-weight: 500;
 }
 
@@ -255,7 +297,7 @@
 .chatContainer {
   background: var(--surface-2);
   border-radius: 20px;
-  padding: 24px;
+  padding: 18px;
   border: 1px solid var(--border);
 }
 
@@ -270,10 +312,10 @@
 }
 
 .chatMessage {
-  padding: 16px 20px;
+  padding: 12px 16px;
   border-radius: 16px;
   max-width: 85%;
-  font-size: 15px;
+  font-size: 13px;
 }
 
 .chatMessage.assistant {
@@ -321,7 +363,7 @@
   border-radius: 10px;
   background: transparent;
   color: var(--text);
-  font-size: 14px;
+  font-size: 13px;
   border: none;
   cursor: pointer;
 }
@@ -336,14 +378,14 @@
 .listItem {
   background: var(--surface);
   border-radius: 16px;
-  padding: 24px;
+  padding: 20px;
   border: 1px solid var(--border);
   margin-bottom: 16px;
   list-style: none;
 }
 
 .workoutName {
-  font-size: 18px;
+  font-size: 16px;
   font-weight: 700;
   color: var(--text-h);
 }
@@ -382,7 +424,7 @@
   color: var(--text-h);
   text-decoration: none;
   font-weight: 600;
-  font-size: 14px;
+  font-size: 13px;
   padding: 8px 12px;
   border-radius: 10px;
   transition: all 0.2s ease;
@@ -427,7 +469,7 @@
   }
   
   .card.hero {
-    padding: 32px 24px;
+    padding: 24px 20px;
   }
   
   .optionMetrics {
