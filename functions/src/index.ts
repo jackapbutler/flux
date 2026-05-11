@@ -494,6 +494,10 @@ type CurrentDateContext = {
 
 const dayNamesUtc = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
 
+function utcMidnightMs(date: Date): number {
+  return Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate())
+}
+
 function workoutDateDetails(startDate: string | null, now: Date): {
   workoutDateUtc: string | null
   dayOfWeekUtc: string | null
@@ -507,10 +511,10 @@ function workoutDateDetails(startDate: string | null, now: Date): {
     return { workoutDateUtc: null, dayOfWeekUtc: null, daysAgo: null }
   }
   const msInDay = 24 * 60 * 60 * 1000
-  const daysAgo = Math.max(0, Math.floor((now.getTime() - parsed.getTime()) / msInDay))
+  const daysAgo = Math.max(0, Math.floor((utcMidnightMs(now) - utcMidnightMs(parsed)) / msInDay))
   return {
     workoutDateUtc: parsed.toISOString().slice(0, 10),
-    dayOfWeekUtc: dayNamesUtc[parsed.getUTCDay()] ?? null,
+    dayOfWeekUtc: dayNamesUtc[parsed.getUTCDay()],
     daysAgo,
   }
 }
@@ -600,7 +604,7 @@ async function getRecentRecommendationContext(uid: string): Promise<{
   const currentDateContext: CurrentDateContext = {
     nowIsoUtc: now.toISOString(),
     dateUtc: now.toISOString().slice(0, 10),
-    dayOfWeekUtc: dayNamesUtc[now.getUTCDay()] ?? 'Unknown',
+    dayOfWeekUtc: dayNamesUtc[now.getUTCDay()],
   }
 
   return { currentDateContext, workouts, contextCount }
@@ -668,7 +672,7 @@ export const recommendNextWorkout = onCall(
       `LONG-TERM FITNESS PERSONA:\n${persona || '(not built yet)'}\n\n` +
       `CURRENT DATE CONTEXT (UTC):\n${JSON.stringify(currentDateContext, null, 2)}\n\n` +
       `IMMEDIATE CONTEXT (Last 10 Workouts):\n` +
-      `Context coverage: ${contextCount}/${workouts.length} workouts include user notes.\n` +
+      `Context coverage: ${contextCount}/${workouts.length} workouts include user notes (up to 10 recent workouts).\n` +
       `Recent workouts (JSON):\n${JSON.stringify(workouts, null, 2)}\n\n` +
       `RECOMMENDATION STRATEGY:\n` +
       `1. Assess recent load: sum duration/intensity of last 3-5 workouts\n` +
@@ -803,7 +807,7 @@ export const refineRecommendation = onCall({ secrets: [geminiApiKey] }, async (r
       `LONG-TERM FITNESS PERSONA:\n${persona || '(not built yet)'}\n\n` +
       `CURRENT DATE CONTEXT (UTC):\n${JSON.stringify(currentDateContext, null, 2)}\n\n` +
       `IMMEDIATE CONTEXT (Last 10 Workouts):\n` +
-      `Context coverage: ${contextCount}/${workouts.length} workouts include user notes.\n` +
+      `Context coverage: ${contextCount}/${workouts.length} workouts include user notes (up to 10 recent workouts).\n` +
       `Recent workouts (JSON):\n${JSON.stringify(workouts, null, 2)}\n\n` +
       `Conversation history:\n${conversationContext}\n\n` +
       `New constraint/question from user: ${userMessage}\n\n` +
