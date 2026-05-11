@@ -55,6 +55,23 @@ function requireGeminiKey(): string {
   return apiKey
 }
 
+function readContextTags(raw: unknown): string[] | null {
+  if (!Array.isArray(raw)) return null
+  const seen = new Set<string>()
+  const tags: string[] = []
+  for (const value of raw) {
+    if (typeof value !== 'string') continue
+    const trimmed = value.replace(/\s+/g, ' ').trim()
+    if (!trimmed) continue
+    const tag = trimmed.slice(0, 24)
+    const key = tag.toLowerCase()
+    if (seen.has(key)) continue
+    seen.add(key)
+    tags.push(tag)
+  }
+  return tags.length ? tags.slice(0, 6) : null
+}
+
 function defaultWebBaseUrl(): string {
   const projectId = process.env.GCLOUD_PROJECT || process.env.GCP_PROJECT
   if (!projectId) return 'http://localhost:5173'
@@ -354,7 +371,7 @@ async function buildFitnessPersonaText(uid: string): Promise<string> {
     // Mapping Strava workout data
     const data = (d.data() ?? {}) as {
       strava?: Record<string, unknown>
-      context?: { text?: unknown }
+      context?: { text?: unknown; tags?: unknown }
     }
 
     return {
@@ -379,6 +396,7 @@ async function buildFitnessPersonaText(uid: string): Promise<string> {
       manual: typeof data.strava?.manual === 'boolean' ? data.strava.manual : null,
       deviceName: typeof data.strava?.deviceName === 'string' ? data.strava.deviceName : null,
       contextText: typeof data.context?.text === 'string' ? data.context.text : null,
+      contextTags: readContextTags(data.context?.tags),
     }
   })
 
@@ -401,7 +419,7 @@ async function buildFitnessPersonaText(uid: string): Promise<string> {
     `INSTRUCTIONS:\n` +
     `1. Maintain long-term insights from the previous persona that are still relevant.\n` +
     `2. Override sections if new data shows a shift in behavior, modality, or fatigue levels.\n` +
-    `3. Append new observations from recent notes (contextText) or trends.\n` +
+    `3. Append new observations from recent notes (contextText/contextTags) or trends.\n` +
     `4. Output three sections (Athlete Profile, Constraints & Risks, Next 14 Days Focus).\n\n` +
     `Output the final updated persona.`
 
@@ -514,7 +532,7 @@ export const recommendNextWorkout = onCall(
           trainer?: unknown
           manual?: unknown
         }
-        context?: { text?: unknown }
+        context?: { text?: unknown; tags?: unknown }
       }
 
       return {
@@ -529,6 +547,7 @@ export const recommendNextWorkout = onCall(
         trainer: typeof data.strava?.trainer === 'boolean' ? data.strava.trainer : null,
         manual: typeof data.strava?.manual === 'boolean' ? data.strava.manual : null,
         contextText: typeof data.context?.text === 'string' ? data.context.text : null,
+        contextTags: readContextTags(data.context?.tags),
       }
     })
 

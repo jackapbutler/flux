@@ -19,7 +19,7 @@ type WorkoutRow = {
     distance?: number | null
     elapsedTime?: number | null
   }
-  context?: { text?: string | null; voiceUrl?: string | null; updatedAt?: Timestamp | null }
+  context?: { text?: string | null; tags?: string[] | null; voiceUrl?: string | null; updatedAt?: Timestamp | null }
 }
 
 type MaybeFirebaseError = { code?: string; message?: string; details?: unknown }
@@ -319,7 +319,10 @@ export function Hub() {
                         <WorkoutContextEditor
                           uid={user.uid}
                           workoutId={workout.id}
+                          workoutType={workout.strava?.type ?? null}
                           initialText={workout.context?.text ?? ''}
+                          initialTags={workout.context?.tags ?? []}
+                          initialVoiceUrl={workout.context?.voiceUrl ?? null}
                         />
                       ) : null}
                     </li>
