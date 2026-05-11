@@ -734,23 +734,68 @@ export const transcribeWorkoutVoice = onCall({ secrets: [geminiApiKey] }, async 
   if (!audioBase64) {
     throw new HttpsError('invalid-argument', 'Missing audio data')
   }
-
-  const apiKey = requireGeminiKey()
-  const genAI = new GoogleGenerativeAI(apiKey)
-  const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' })
-
-  const result = await model.generateContent([
-    {
-      inlineData: {
-        mimeType: 'audio/webm',
-        data: audioBase64,
-      },
-    },
-    { text: 'Transcribe this workout voice note exactly. If there is no speech, return an empty string. Do not add any commentary.' },
+  const requestedMimeType = typeof req.data?.mimeType === 'string' ? req.data.mimeType.trim().toLowerCase() : ''
+  const normalizedMimeType = requestedMimeType.split(';')[0]
+  const allowedMimeTypes = new Set([
+    'audio/webm',
+    'audio/mp4',
+    'audio/mpeg',
+    'audio/mp3',
+    'audio/ogg',
+    'audio/wav',
+    'audio/x-wav',
+    'audio/aac',
   ])
+  const mimeType = allowedMimeTypes.has(normalizedMimeType) ? normalizedMimeType : 'audio/webm'
 
-  const transcription = result.response.text().trim()
-  return { transcription }
+  try {
+    const apiKey = requireGeminiKey()
+    const genAI = new GoogleGenerativeAI(apiKey)
+    const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' })
+
+    const result = await model.generateContent([
+      {
+        inlineData: {
+          mimeType,
+          data: audioBase64,
+        },
+      },
+      { text: 'Transcribe this workout voice note exactly. If there is no speech, return an empty string. Do not add any commentary.' },
+    ])
+
+    const transcription = result.response.text().trim()
+    return { transcription }
+  } catch (e) {
+    const message = (e as Error)?.message || String(e)
+    const messageLower = message.toLowerCase()
+    console.error('transcribeWorkoutVoice failed', {
+      mimeType,
+      message,
+    })
+    if (e instanceof HttpsError) throw e
+    if (
+      messageLower.includes('mime') ||
+      messageLower.includes('format') ||
+      messageLower.includes('invalid audio') ||
+      messageLower.includes('unsupported')
+    ) {
+      throw new HttpsError(
+        'invalid-argument',
+        'Unsupported audio format. Please try recording again.',
+      )
+    }
+    if (
+      messageLower.includes('too large') ||
+      messageLower.includes('payload') ||
+      messageLower.includes('request too large')
+    ) {
+      throw new HttpsError(
+        'invalid-argument',
+        'Voice note is too large to transcribe. Please record a shorter note and try again.',
+      )
+    }
+    throw new HttpsError('unavailable', 'Transcription service is temporarily unavailable. Please try again.')
+  }
 })
 
 export const stravaSyncRecent = onCall(
