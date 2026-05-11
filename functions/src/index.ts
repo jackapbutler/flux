@@ -661,6 +661,9 @@ const hardEffortKeywords = [
   'failure',
   'pr',
   '1rm',
+  'rpe 8',
+  'rpe 9',
+  'rpe 10',
 ]
 
 const fatigueKeywords = [
@@ -677,7 +680,8 @@ const fatigueKeywords = [
 ]
 
 function includesAnyKeyword(text: string, keywords: string[]): boolean {
-  return keywords.some((keyword) => text.includes(keyword))
+  const normalizedText = text.toLowerCase()
+  return keywords.some((keyword) => normalizedText.includes(keyword.toLowerCase()))
 }
 
 function deriveRecoveryAlerts(workouts: RecommendationWorkoutContext[]): string[] {
@@ -696,8 +700,7 @@ function deriveRecoveryAlerts(workouts: RecommendationWorkoutContext[]): string[
     if (!text.trim()) continue
 
     const hasLowerBodySignal = includesAnyKeyword(text, lowerBodyKeywords)
-    const hasHardEffortSignal =
-      includesAnyKeyword(text, hardEffortKeywords) || text.includes('rpe 8') || text.includes('rpe 9') || text.includes('rpe 10')
+    const hasHardEffortSignal = includesAnyKeyword(text, hardEffortKeywords)
     const hasFatigueSignal = includesAnyKeyword(text, fatigueKeywords)
 
     if (hasLowerBodySignal && (hasHardEffortSignal || hasFatigueSignal)) {
