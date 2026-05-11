@@ -672,7 +672,7 @@ export const recommendNextWorkout = onCall(
       `LONG-TERM FITNESS PERSONA:\n${persona || '(not built yet)'}\n\n` +
       `CURRENT DATE CONTEXT (UTC):\n${JSON.stringify(currentDateContext, null, 2)}\n\n` +
       `IMMEDIATE CONTEXT (Last 10 Workouts):\n` +
-      `Context coverage: ${contextCount}/${workouts.length} workouts include user notes (up to 10 recent workouts).\n` +
+      `Context coverage: ${contextCount}/${workouts.length} workouts include user notes.\n` +
       `Recent workouts (JSON):\n${JSON.stringify(workouts, null, 2)}\n\n` +
       `RECOMMENDATION STRATEGY:\n` +
       `1. Assess recent load: sum duration/intensity of last 3-5 workouts\n` +
@@ -807,7 +807,7 @@ export const refineRecommendation = onCall({ secrets: [geminiApiKey] }, async (r
       `LONG-TERM FITNESS PERSONA:\n${persona || '(not built yet)'}\n\n` +
       `CURRENT DATE CONTEXT (UTC):\n${JSON.stringify(currentDateContext, null, 2)}\n\n` +
       `IMMEDIATE CONTEXT (Last 10 Workouts):\n` +
-      `Context coverage: ${contextCount}/${workouts.length} workouts include user notes (up to 10 recent workouts).\n` +
+      `Context coverage: ${contextCount}/${workouts.length} workouts include user notes.\n` +
       `Recent workouts (JSON):\n${JSON.stringify(workouts, null, 2)}\n\n` +
       `Conversation history:\n${conversationContext}\n\n` +
       `New constraint/question from user: ${userMessage}\n\n` +
