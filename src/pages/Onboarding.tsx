@@ -82,7 +82,7 @@ export function Onboarding() {
         { goalText: trimmedGoal, updatedAt: serverTimestamp() },
         { merge: true },
       )
-      setGoalDraft(trimmedGoal)
+      setGoalDraft(null)
       setGoalSaved('Goal saved')
     } catch (e) {
       setError(errorMessage(e))
