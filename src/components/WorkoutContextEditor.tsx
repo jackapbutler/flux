@@ -134,10 +134,6 @@ export function WorkoutContextEditor({ uid, workoutId, workoutType, initialText,
     }
   }, [uid, workoutType])
 
-  useEffect(() => {
-    setVoiceUrl(initialVoiceUrl ?? null)
-  }, [initialVoiceUrl, workoutId])
-
   const toggleTag = (tag: string) => {
     setStatus(null)
     setSelectedTags((prev) => {
