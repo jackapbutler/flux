@@ -219,7 +219,7 @@
 .sectionContent {
   font-size: 14px;
   color: var(--text-h);
-  font-weight: 450;
+  font-weight: 500;
 }
 
 .optionSummary {
@@ -277,6 +277,13 @@
   display: flex;
   flex-direction: column;
   gap: 10px;
+}
+
+.whyPreview {
+  margin: 12px 0 0;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-h);
 }
 
 .whyList li {

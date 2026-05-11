@@ -6,10 +6,12 @@ type Props = {
   index: number
 }
 
+const MAX_PREVIEW_LENGTH = 120
+
 function getOverviewPreview(mainSet: string): string {
   const compact = mainSet.trim()
-  if (compact.length <= 120) return compact
-  return `${compact.slice(0, 117).trimEnd()}...`
+  if (compact.length <= MAX_PREVIEW_LENGTH) return compact
+  return `${compact.slice(0, MAX_PREVIEW_LENGTH - 3).trimEnd()}...`
 }
 
 function getIntensityColor(intensity: string): string {
@@ -28,7 +30,7 @@ function getIntensityColor(intensity: string): string {
 
 export function RecommendationCard({ option, index }: Props) {
   const intensityColor = getIntensityColor(option.intensity)
-  const topReason = option.why[0]
+  const topReason = option.why.length > 0 ? option.why[0] : undefined
   const overviewPreview = getOverviewPreview(option.mainSet)
 
   return (
@@ -64,9 +66,7 @@ export function RecommendationCard({ option, index }: Props) {
       {topReason ? (
         <div className="optionWhy">
           <div className="sectionLabel">Why this workout</div>
-          <ul className="whyList">
-            <li>{topReason}</li>
-          </ul>
+          <p className="whyPreview">{topReason}</p>
         </div>
       ) : null}
 
@@ -89,7 +89,7 @@ export function RecommendationCard({ option, index }: Props) {
         </div>
 
         <div className="optionSection">
-          <div className="sectionLabel">All workout reasons</div>
+          <div className="sectionLabel">Full workout rationale</div>
           <ul className="whyList">
             {option.why.map((reason, i) => (
               <li key={i}>{reason}</li>
