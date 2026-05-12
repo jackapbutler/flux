@@ -22,6 +22,14 @@ export type RecommendationResponse = {
   safetyChecks: string[]
 }
 
+type RecommendationPreferences = {
+  acceptedCount: number
+  passedCount: number
+  byType: { accepted: Record<string, number>; passed: Record<string, number> }
+  byIntensity: { accepted: Record<string, number>; passed: Record<string, number> }
+  byDuration: { accepted: Record<string, number>; passed: Record<string, number> }
+}
+
 const db = getFirestore()
 
 const geminiApiKey = defineSecret('GEMINI_API_KEY')
@@ -92,6 +100,172 @@ function readContextTags(raw: unknown): string[] | null {
     tags.push(tag)
   }
   return tags.length ? tags.slice(0, 6) : null
+}
+
+function sanitizeText(raw: unknown, maxLen: number): string {
+  if (typeof raw !== 'string') return ''
+  return raw.replace(/\s+/g, ' ').trim().slice(0, maxLen)
+}
+
+function parsePreferenceMap(raw: unknown): Record<string, number> {
+  if (!raw || typeof raw !== 'object') return {}
+  const out: Record<string, number> = {}
+  for (const [key, value] of Object.entries(raw as Record<string, unknown>)) {
+    if (typeof key !== 'string' || !key) continue
+    if (typeof value !== 'number' || !Number.isFinite(value)) continue
+    out[key] = value
+  }
+  return out
+}
+
+function parseRecommendationPreferences(raw: unknown): RecommendationPreferences {
+  const input = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : {}
+  const byTypeRaw = input.byType && typeof input.byType === 'object' ? (input.byType as Record<string, unknown>) : {}
+  const byIntensityRaw =
+    input.byIntensity && typeof input.byIntensity === 'object'
+      ? (input.byIntensity as Record<string, unknown>)
+      : {}
+  const byDurationRaw =
+    input.byDuration && typeof input.byDuration === 'object' ? (input.byDuration as Record<string, unknown>) : {}
+
+  return {
+    acceptedCount: typeof input.acceptedCount === 'number' ? input.acceptedCount : 0,
+    passedCount: typeof input.passedCount === 'number' ? input.passedCount : 0,
+    byType: {
+      accepted: parsePreferenceMap(byTypeRaw.accepted),
+      passed: parsePreferenceMap(byTypeRaw.passed),
+    },
+    byIntensity: {
+      accepted: parsePreferenceMap(byIntensityRaw.accepted),
+      passed: parsePreferenceMap(byIntensityRaw.passed),
+    },
+    byDuration: {
+      accepted: parsePreferenceMap(byDurationRaw.accepted),
+      passed: parsePreferenceMap(byDurationRaw.passed),
+    },
+  }
+}
+
+function normalizePreferenceKey(raw: string): string {
+  const normalized = raw
+    .toLowerCase()
+    .replace(/[^a-z0-9\s_-]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .replace(/\s/g, '_')
+  return normalized || 'unknown'
+}
+
+function incrementCounter(map: Record<string, number>, key: string): Record<string, number> {
+  return {
+    ...map,
+    [key]: (map[key] ?? 0) + 1,
+  }
+}
+
+function parseDurationToMinutes(duration: string): number | null {
+  const text = duration.toLowerCase()
+  let minutes = 0
+
+  const hourMatch = text.match(/(\d+(?:\.\d+)?)\s*(h|hr|hrs|hour|hours)\b/)
+  if (hourMatch?.[1]) {
+    const hours = Number(hourMatch[1])
+    if (Number.isFinite(hours) && hours > 0) {
+      minutes += Math.round(hours * 60)
+    }
+  }
+
+  const minuteMatch = text.match(/(\d+(?:\.\d+)?)\s*(m|min|mins|minute|minutes)\b/)
+  if (minuteMatch?.[1]) {
+    const directMinutes = Number(minuteMatch[1])
+    if (Number.isFinite(directMinutes) && directMinutes > 0) {
+      minutes += Math.round(directMinutes)
+    }
+  }
+
+  if (minutes > 0) return minutes
+
+  const genericMatch = text.match(/\d+/)
+  if (!genericMatch) return null
+  const fallbackMinutes = Number(genericMatch[0])
+  if (!Number.isFinite(fallbackMinutes) || fallbackMinutes <= 0) return null
+  return fallbackMinutes
+}
+
+function durationBucket(minutes: number | null): string {
+  if (!minutes) return 'unknown'
+  if (minutes <= 30) return 'short'
+  if (minutes <= 60) return 'medium'
+  return 'long'
+}
+
+const EASY_INTENSITY_HINTS = ['easy', 'low']
+const MODERATE_INTENSITY_HINTS = ['moderate']
+const HARD_INTENSITY_HINTS = ['hard', 'high']
+
+const EASY_INTENSITY_SCORE_PATTERN = /\b(1|2|3|4)\b/
+const MODERATE_INTENSITY_SCORE_PATTERN = /\b(5|6|7)\b/
+const HARD_INTENSITY_SCORE_PATTERN = /\b(8|9|10)\b/
+
+function intensityBucket(intensity: string): string {
+  const lower = intensity.toLowerCase()
+  if (
+    EASY_INTENSITY_SCORE_PATTERN.test(lower) ||
+    EASY_INTENSITY_HINTS.some((hint) => lower.includes(hint))
+  ) {
+    return 'easy'
+  }
+  if (
+    MODERATE_INTENSITY_SCORE_PATTERN.test(lower) ||
+    MODERATE_INTENSITY_HINTS.some((hint) => lower.includes(hint))
+  ) {
+    return 'moderate'
+  }
+  if (
+    HARD_INTENSITY_SCORE_PATTERN.test(lower) ||
+    HARD_INTENSITY_HINTS.some((hint) => lower.includes(hint))
+  ) {
+    return 'hard'
+  }
+  return 'unknown'
+}
+
+function summarizeTopCategory(map: Record<string, number>): string | null {
+  const sorted = Object.entries(map).sort((a, b) => b[1] - a[1])
+  if (sorted.length === 0) return null
+  const top = sorted[0]
+  if (!top) return null
+  return `${top[0]} (${top[1]})`
+}
+
+function buildPreferenceSummary(preferences: RecommendationPreferences): string {
+  const typeTop = summarizeTopCategory(preferences.byType.accepted)
+  const intensityTop = summarizeTopCategory(preferences.byIntensity.accepted)
+  const durationTop = summarizeTopCategory(preferences.byDuration.accepted)
+  const lines = [
+    `Accepted ${preferences.acceptedCount}, passed ${preferences.passedCount} recommended workouts.`,
+    typeTop ? `Most accepted workout type: ${typeTop}.` : null,
+    intensityTop ? `Preferred intensity profile: ${intensityTop}.` : null,
+    durationTop ? `Preferred duration bucket: ${durationTop}.` : null,
+  ].filter(Boolean)
+  return lines.join(' ')
+}
+
+function normalizeWorkoutOption(raw: unknown): WorkoutOption {
+  const data = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : {}
+  const whyRaw = Array.isArray(data.why) ? data.why : []
+  return {
+    title: sanitizeText(data.title, 80),
+    duration: sanitizeText(data.duration, 40),
+    intensity: sanitizeText(data.intensity, 50),
+    mainSet: sanitizeText(data.mainSet, 220),
+    why: whyRaw
+      .filter((item): item is string => typeof item === 'string')
+      .map((item) => sanitizeText(item, 140))
+      .filter(Boolean)
+      .slice(0, 4),
+    type: sanitizeText(data.type, 40) || undefined,
+  }
 }
 
 function defaultWebBaseUrl(): string {
@@ -697,6 +871,7 @@ export const recommendNextWorkout = onCall(
       goalText?: unknown
       workoutEnvironmentConstraintsText?: unknown
       fitnessPersonaText?: unknown
+      fitnessPersonaPreferenceText?: unknown
     }
 
     const goalText = typeof userData.goalText === 'string' ? userData.goalText.trim() : ''
@@ -706,6 +881,10 @@ export const recommendNextWorkout = onCall(
         : ''
     const persona =
       typeof userData.fitnessPersonaText === 'string' ? userData.fitnessPersonaText.trim() : ''
+    const preferencePersona =
+      typeof userData.fitnessPersonaPreferenceText === 'string'
+        ? userData.fitnessPersonaPreferenceText.trim()
+        : ''
 
     const { currentDateContext, workouts, contextCount } = await getRecentRecommendationContext(uid)
 
@@ -729,6 +908,7 @@ export const recommendNextWorkout = onCall(
       `GOAL & PREFERENCES:\n${goalText || '(not set)'}\n\n` +
       `WORKOUT ENVIRONMENT CONSTRAINTS:\n${workoutEnvironmentConstraintsText || '(not set)'}\n\n` +
       `FITNESS PERSONA:\n${persona || '(not built yet)'}\n\n` +
+      `PREFERENCE FEEDBACK PERSONA:\n${preferencePersona || '(no recommendation feedback yet)'}\n\n` +
       `DATE: ${formatDateContext(currentDateContext)}\n\n` +
       `RECENT WORKOUTS (last ${workouts.length}, ${contextCount} with notes):\n` +
       `${formatWorkoutsAsText(workouts)}\n\n` +
@@ -816,6 +996,7 @@ export const refineRecommendation = onCall({ secrets: [geminiApiKey] }, async (r
       goalText?: unknown
       workoutEnvironmentConstraintsText?: unknown
       fitnessPersonaText?: unknown
+      fitnessPersonaPreferenceText?: unknown
     }
     const goalText = typeof userData.goalText === 'string' ? userData.goalText.trim() : ''
     const workoutEnvironmentConstraintsText =
@@ -824,6 +1005,10 @@ export const refineRecommendation = onCall({ secrets: [geminiApiKey] }, async (r
         : ''
     const persona =
       typeof userData.fitnessPersonaText === 'string' ? userData.fitnessPersonaText.trim() : ''
+    const preferencePersona =
+      typeof userData.fitnessPersonaPreferenceText === 'string'
+        ? userData.fitnessPersonaPreferenceText.trim()
+        : ''
     const { currentDateContext, workouts, contextCount } = await getRecentRecommendationContext(uid)
     const apiKey = requireGeminiKey()
 
@@ -852,6 +1037,7 @@ export const refineRecommendation = onCall({ secrets: [geminiApiKey] }, async (r
       `GOAL & PREFERENCES:\n${goalText || '(not set)'}\n\n` +
       `WORKOUT ENVIRONMENT CONSTRAINTS:\n${workoutEnvironmentConstraintsText || '(not set)'}\n\n` +
       `FITNESS PERSONA:\n${persona || '(not built yet)'}\n\n` +
+      `PREFERENCE FEEDBACK PERSONA:\n${preferencePersona || '(no recommendation feedback yet)'}\n\n` +
       `DATE: ${formatDateContext(currentDateContext)}\n\n` +
       `RECENT WORKOUTS (last ${workouts.length}, ${contextCount} with notes):\n` +
       `${formatWorkoutsAsText(workouts)}\n\n` +
@@ -902,6 +1088,88 @@ export const refineRecommendation = onCall({ secrets: [geminiApiKey] }, async (r
     return parsed
   } catch (e) {
     console.error('refineRecommendation failed', e)
+    if (e instanceof HttpsError) throw e
+    throw new HttpsError('internal', (e as Error)?.message || 'Unknown error')
+  }
+})
+
+export const respondToWorkoutRecommendation = onCall({ invoker: 'public' }, async (req) => {
+  try {
+    if (!req.auth) throw new HttpsError('unauthenticated', 'Sign in')
+
+    const decision = req.data?.decision
+    if (decision !== 'pass' && decision !== 'accept') {
+      throw new HttpsError('invalid-argument', 'Decision must be "pass" or "accept"')
+    }
+
+    const option = normalizeWorkoutOption(req.data?.option)
+    if (!option.title || !option.duration || !option.intensity || !option.mainSet) {
+      throw new HttpsError('invalid-argument', 'Recommendation option is incomplete')
+    }
+
+    const uid = req.auth.uid
+    const userRef = db.doc(`users/${uid}`)
+
+    const result = await db.runTransaction(async (tx) => {
+      const userSnap = await tx.get(userRef)
+      const userData = (userSnap.data() ?? {}) as { recommendationPreferences?: unknown }
+      const previous = parseRecommendationPreferences(userData.recommendationPreferences)
+
+      const typeKey = normalizePreferenceKey(option.type || 'unknown')
+      const intensityKey = intensityBucket(option.intensity)
+      const durationKey = durationBucket(parseDurationToMinutes(option.duration))
+      const countKey: 'acceptedCount' | 'passedCount' = decision === 'accept' ? 'acceptedCount' : 'passedCount'
+      const bucketKey: 'accepted' | 'passed' = decision === 'accept' ? 'accepted' : 'passed'
+
+      const next: RecommendationPreferences = {
+        ...previous,
+        [countKey]: previous[countKey] + 1,
+        byType: {
+          ...previous.byType,
+          [bucketKey]: incrementCounter(previous.byType[bucketKey], typeKey),
+        },
+        byIntensity: {
+          ...previous.byIntensity,
+          [bucketKey]: incrementCounter(previous.byIntensity[bucketKey], intensityKey),
+        },
+        byDuration: {
+          ...previous.byDuration,
+          [bucketKey]: incrementCounter(previous.byDuration[bucketKey], durationKey),
+        },
+      }
+
+      const preferenceSummary = buildPreferenceSummary(next)
+
+      tx.set(
+        userRef,
+        {
+          recommendationPreferences: next,
+          fitnessPersonaPreferenceText: preferenceSummary,
+          fitnessPersonaUpdatedAt: FieldValue.serverTimestamp(),
+          updatedAt: FieldValue.serverTimestamp(),
+        },
+        { merge: true },
+      )
+
+      let saved = false
+      if (decision === 'accept') {
+        saved = true
+        const savedWorkoutRef = db.collection(`users/${uid}/savedWorkouts`).doc()
+        tx.set(savedWorkoutRef, {
+          option,
+          source: 'recommendNextWorkout',
+          savedAt: FieldValue.serverTimestamp(),
+          updatedAt: FieldValue.serverTimestamp(),
+          createdAt: FieldValue.serverTimestamp(),
+        })
+      }
+
+      return { saved, preferenceSummary }
+    })
+
+    return result
+  } catch (e) {
+    console.error('respondToWorkoutRecommendation failed', e)
     if (e instanceof HttpsError) throw e
     throw new HttpsError('internal', (e as Error)?.message || 'Unknown error')
   }

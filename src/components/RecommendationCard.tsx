@@ -1,9 +1,20 @@
+import { useRef, useState } from 'react'
 import type { WorkoutOption } from '../lib/types'
 import { WorkoutIcon } from './WorkoutIcon'
+
+const SWIPE_THRESHOLD = 80
+const MAX_DRAG_OFFSET = 120
+
+function clampDragOffset(offset: number): number {
+  return Math.max(-MAX_DRAG_OFFSET, Math.min(MAX_DRAG_OFFSET, offset))
+}
 
 type Props = {
   option: WorkoutOption
   index: number
+  onPass?: () => void
+  onAccept?: () => void
+  disabled?: boolean
 }
 
 function getIntensityColor(intensity: string): string {
@@ -20,13 +31,46 @@ function getIntensityColor(intensity: string): string {
   return 'var(--accent)'
 }
 
-export function RecommendationCard({ option, index }: Props) {
+export function RecommendationCard({ option, index, onPass, onAccept, disabled }: Props) {
   const intensityColor = getIntensityColor(option.intensity)
   const topReason = option.why.length > 0 ? option.why[0] : undefined
   const overviewPreview = option.mainSet.trim()
+  const [dragOffset, setDragOffset] = useState(0)
+  const touchStartX = useRef<number | null>(null)
+
+  const applySwipe = () => {
+    touchStartX.current = null
+    if (disabled) return
+    if (dragOffset <= -SWIPE_THRESHOLD && onPass) {
+      onPass()
+    } else if (dragOffset >= SWIPE_THRESHOLD && onAccept) {
+      onAccept()
+    }
+    setDragOffset(0)
+  }
 
   return (
-    <div className="workoutOption">
+    <div
+      className="workoutOption swipeCard"
+      style={{
+        transform: dragOffset ? `translateX(${dragOffset}px)` : undefined,
+        transition: dragOffset ? undefined : 'transform 0.2s ease',
+      }}
+      onTouchStart={(e) => {
+        touchStartX.current = e.touches[0]?.clientX ?? null
+      }}
+      onTouchMove={(e) => {
+        if (touchStartX.current === null || disabled) return
+        const current = e.touches[0]?.clientX
+        if (typeof current !== 'number') return
+        setDragOffset(clampDragOffset(current - touchStartX.current))
+      }}
+      onTouchEnd={applySwipe}
+      onTouchCancel={() => {
+        touchStartX.current = null
+        setDragOffset(0)
+      }}
+    >
       <div className="optionHeader">
         <div className="workoutIconWrapper">
           <WorkoutIcon type={option.type} size="medium" />
@@ -61,6 +105,22 @@ export function RecommendationCard({ option, index }: Props) {
           <p className="whyPreview">{topReason}</p>
         </div>
       ) : null}
+
+      {(onPass || onAccept) && (
+        <div className="swipeActions">
+          <div className="muted" style={{ fontSize: '12px' }}>
+            Swipe left to pass or right to accept
+          </div>
+          <div className="row">
+            <button type="button" className="secondary" onClick={onPass} disabled={disabled}>
+              Pass
+            </button>
+            <button type="button" className="primary" onClick={onAccept} disabled={disabled}>
+              Accept & save
+            </button>
+          </div>
+        </div>
+      )}
 
       <details className="optionDetails">
         <summary className="optionToggle">View workout details</summary>
