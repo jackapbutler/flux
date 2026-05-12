@@ -5,6 +5,10 @@ import { WorkoutIcon } from './WorkoutIcon'
 const SWIPE_THRESHOLD = 80
 const MAX_DRAG_OFFSET = 120
 
+function clampDragOffset(offset: number): number {
+  return Math.max(-MAX_DRAG_OFFSET, Math.min(MAX_DRAG_OFFSET, offset))
+}
+
 type Props = {
   option: WorkoutOption
   index: number
@@ -59,7 +63,7 @@ export function RecommendationCard({ option, index, onPass, onAccept, disabled }
         if (touchStartX.current === null || disabled) return
         const current = e.touches[0]?.clientX
         if (typeof current !== 'number') return
-        setDragOffset(Math.max(-MAX_DRAG_OFFSET, Math.min(MAX_DRAG_OFFSET, current - touchStartX.current)))
+        setDragOffset(clampDragOffset(current - touchStartX.current))
       }}
       onTouchEnd={applySwipe}
       onTouchCancel={() => {

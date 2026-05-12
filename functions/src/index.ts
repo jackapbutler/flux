@@ -199,11 +199,34 @@ function durationBucket(minutes: number | null): string {
   return 'long'
 }
 
+const EASY_INTENSITY_HINTS = ['easy', 'low']
+const MODERATE_INTENSITY_HINTS = ['moderate']
+const HARD_INTENSITY_HINTS = ['hard', 'high']
+
+const EASY_INTENSITY_SCORE_PATTERN = /\b(1|2|3|4)\b/
+const MODERATE_INTENSITY_SCORE_PATTERN = /\b(5|6|7)\b/
+const HARD_INTENSITY_SCORE_PATTERN = /\b(8|9|10)\b/
+
 function intensityBucket(intensity: string): string {
   const lower = intensity.toLowerCase()
-  if (/\b(1|2|3|4)\b/.test(lower) || lower.includes('easy') || lower.includes('low')) return 'easy'
-  if (/\b(5|6|7)\b/.test(lower) || lower.includes('moderate')) return 'moderate'
-  if (/\b(8|9|10)\b/.test(lower) || lower.includes('hard') || lower.includes('high')) return 'hard'
+  if (
+    EASY_INTENSITY_SCORE_PATTERN.test(lower) ||
+    EASY_INTENSITY_HINTS.some((hint) => lower.includes(hint))
+  ) {
+    return 'easy'
+  }
+  if (
+    MODERATE_INTENSITY_SCORE_PATTERN.test(lower) ||
+    MODERATE_INTENSITY_HINTS.some((hint) => lower.includes(hint))
+  ) {
+    return 'moderate'
+  }
+  if (
+    HARD_INTENSITY_SCORE_PATTERN.test(lower) ||
+    HARD_INTENSITY_HINTS.some((hint) => lower.includes(hint))
+  ) {
+    return 'hard'
+  }
   return 'unknown'
 }
 
