@@ -77,7 +77,7 @@ export function Hub() {
   const [expandedWorkoutId, setExpandedWorkoutId] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [status, setStatus] = useState<string | null>(null)
-  const [activeTab, setActiveTab] = useState<'plan' | 'workouts'>('plan')
+  const [activeTab, setActiveTab] = useState<'plan' | 'log'>('plan')
 
   const workoutsRef = useMemo(() => {
     if (!user) return null
@@ -237,10 +237,10 @@ export function Hub() {
           </button>
           <button
             type="button"
-            className={`tabButton ${activeTab === 'workouts' ? 'active' : ''}`}
-            onClick={() => setActiveTab('workouts')}
+            className={`tabButton ${activeTab === 'log' ? 'active' : ''}`}
+            onClick={() => setActiveTab('log')}
           >
-            Recent workouts
+            Log
           </button>
         </div>
 
@@ -267,9 +267,9 @@ export function Hub() {
           </div>
         )}
 
-        {activeTab === 'workouts' && (
+        {activeTab === 'log' && (
           <div className="tabContent stack">
-            <h2>Recent workouts</h2>
+            <h2>Log</h2>
             {workouts.length === 0 ? (
               <p className="muted">
                 No workouts yet. Connect Strava in <Link to="/onboarding">Settings</Link>, then
