@@ -17,6 +17,10 @@ service cloud.firestore {
         allow read, write: if isOwner(userId);
       }
 
+      match /savedWorkouts/{workoutId} {
+        allow read, write: if isOwner(userId);
+      }
+
       // Server-only token storage (Cloud Functions / Admin SDK bypasses rules)
       match /private/{docId} {
         allow read, write: if false;
