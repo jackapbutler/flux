@@ -905,7 +905,7 @@ export const generateTrainingPlan = onCall(
         throw new HttpsError('internal', 'Invalid plan structure: missing sessions')
       }
 
-      const sessions: PlannedSession[] = parsed.sessions
+      const sessions = (parsed.sessions as unknown[])
         .map((raw) => {
           const entry = (raw ?? {}) as Record<string, unknown>
           const date = typeof entry.date === 'string' ? entry.date.trim() : ''
@@ -917,9 +917,12 @@ export const generateTrainingPlan = onCall(
           const notes = typeof entry.notes === 'string' ? entry.notes.trim() : undefined
           const validDate = /^\d{4}-\d{2}-\d{2}$/.test(date)
           if (!validDate || !title || !duration || !intensity || !mainSet) return null
-          return { date, title, duration, intensity, mainSet, type, notes }
+          const session: PlannedSession = { date, title, duration, intensity, mainSet }
+          if (type) session.type = type
+          if (notes) session.notes = notes
+          return session
         })
-        .filter((v): v is PlannedSession => Boolean(v))
+        .filter((v): v is PlannedSession => v !== null)
         .sort((a, b) => a.date.localeCompare(b.date))
 
       if (sessions.length === 0) {
