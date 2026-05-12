@@ -420,6 +420,24 @@
   box-shadow: var(--shadow);
 }
 
+.planRangeControls {
+  align-items: flex-end;
+}
+
+.planRangeInput {
+  width: 92px;
+}
+
+.planRangeSelect {
+  min-width: 120px;
+}
+
+.planList {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
 /* List Items */
 .listItem {
   background: var(--surface);
@@ -645,15 +663,15 @@
     align-items: stretch;
   }
 
+  .savedWorkoutHeader {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
   .menuPanel {
     right: 0;
     min-width: 0;
     width: 100%;
-  }
-
-  .savedWorkoutHeader {
-    flex-direction: column;
-    align-items: stretch;
   }
 
   .authCard {

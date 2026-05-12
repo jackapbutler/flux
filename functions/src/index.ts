@@ -22,6 +22,29 @@ export type RecommendationResponse = {
   safetyChecks: string[]
 }
 
+type PlanRangeUnit = 'weeks' | 'months'
+
+type PlannedSession = {
+  date: string
+  title: string
+  duration: string
+  intensity: string
+  mainSet: string
+  type?: string
+  notes?: string
+}
+
+type TrainingPlanResponse = {
+  range: {
+    value: number
+    unit: PlanRangeUnit
+    startDateUtc: string
+    endDateUtc: string
+  }
+  sessions: PlannedSession[]
+  safetyChecks: string[]
+}
+
 type RecommendationPreferences = {
   acceptedCount: number
   passedCount: number
@@ -717,9 +740,26 @@ type CurrentDateContext = {
 }
 
 const dayNamesUtc = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
+const minSessionsPerWeek = 2
 
 function utcMidnightMs(date: Date): number {
   return Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate())
+}
+
+function addUtcDays(date: Date, days: number): Date {
+  const result = new Date(date.getTime())
+  result.setUTCDate(result.getUTCDate() + days)
+  return result
+}
+
+function addUtcMonths(date: Date, months: number): Date {
+  const result = new Date(date.getTime())
+  result.setUTCMonth(result.getUTCMonth() + months)
+  return result
+}
+
+function dateToUtcYmd(date: Date): string {
+  return date.toISOString().slice(0, 10)
 }
 
 function workoutDateDetails(startDate: string | null, now: Date): {
@@ -960,6 +1000,148 @@ export const recommendNextWorkout = onCall(
     if (e instanceof HttpsError) throw e
     throw new HttpsError('internal', (e as Error)?.message || 'Unknown error')
   }
+  },
+)
+
+export const generateTrainingPlan = onCall(
+  { secrets: [geminiApiKey], invoker: 'public' },
+  async (req) => {
+    try {
+      if (!req.auth) throw new HttpsError('unauthenticated', 'Sign in')
+
+      const rawValue = (req.data as { rangeValue?: unknown })?.rangeValue
+      const rawUnit = (req.data as { rangeUnit?: unknown })?.rangeUnit
+      const rangeValue = typeof rawValue === 'number' ? Math.floor(rawValue) : NaN
+      const rangeUnit: PlanRangeUnit = rawUnit === 'months' ? 'months' : 'weeks'
+
+      if (!Number.isFinite(rangeValue) || rangeValue < 1) {
+        throw new HttpsError('invalid-argument', 'rangeValue must be a positive integer')
+      }
+      if (rangeUnit === 'weeks' && rangeValue > 24) {
+        throw new HttpsError('invalid-argument', 'rangeValue is too large for weeks')
+      }
+      if (rangeUnit === 'months' && rangeValue > 12) {
+        throw new HttpsError('invalid-argument', 'rangeValue is too large for months')
+      }
+
+      const uid = req.auth.uid
+      const userSnap = await db.doc(`users/${uid}`).get()
+      const userData = (userSnap.data() ?? {}) as {
+        goalText?: unknown
+        fitnessPersonaText?: unknown
+      }
+      const goalText = typeof userData.goalText === 'string' ? userData.goalText.trim() : ''
+      const persona =
+        typeof userData.fitnessPersonaText === 'string' ? userData.fitnessPersonaText.trim() : ''
+
+      const { currentDateContext, workouts, contextCount } = await getRecentRecommendationContext(uid)
+      const apiKey = requireGeminiKey()
+
+      const startDate = new Date()
+      const endDate =
+        rangeUnit === 'weeks'
+          ? addUtcDays(startDate, rangeValue * 7 - 1)
+          : addUtcDays(addUtcMonths(startDate, rangeValue), -1)
+      const startDateUtc = dateToUtcYmd(startDate)
+      const endDateUtc = dateToUtcYmd(endDate)
+
+      const prompt =
+        `You are Flux, an evidence-based personal trainer creating a longer-range training schedule.\n\n` +
+        `TRAINING PRINCIPLES:\n` +
+        `- Safety first: prioritise injury prevention, sleep, and consistency\n` +
+        `- Progressive overload with conservative changes (normally <=10% week-over-week)\n` +
+        `- Polarised distribution (mostly easy, fewer hard sessions)\n` +
+        `- Autoregulate based on fatigue signals and recent load\n` +
+        `- Include recovery/rest days and avoid back-to-back maximal intensity days\n` +
+        `- Keep session descriptions concise and mobile friendly\n\n` +
+        `GOAL:\n${goalText || '(not set)'}\n\n` +
+        `FITNESS PERSONA:\n${persona || '(not built yet)'}\n\n` +
+        `DATE: ${formatDateContext(currentDateContext)}\n\n` +
+        `PLAN RANGE:\n- Unit: ${rangeUnit}\n- Value: ${rangeValue}\n- Start (UTC): ${startDateUtc}\n- End (UTC): ${endDateUtc}\n\n` +
+        `RECENT WORKOUTS (last ${workouts.length}, ${contextCount} with notes):\n` +
+        `${formatWorkoutsAsText(workouts)}\n\n` +
+        `Return ONLY valid JSON (no markdown) with this schema:\n` +
+        `{\n` +
+        `  "sessions": [\n` +
+        `    {\n` +
+        `      "date": "YYYY-MM-DD",\n` +
+        `      "title": "Short title",\n` +
+        `      "type": "run",\n` +
+        `      "duration": "45 minutes",\n` +
+        `      "intensity": "RPE 6 (Moderate)",\n` +
+        `      "mainSet": "Main session details",\n` +
+        `      "notes": "Optional preparation/recovery note"\n` +
+        `    }\n` +
+        `  ],\n` +
+        `  "safetyChecks": ["Safety check one", "Safety check two"]\n` +
+        `}\n\n` +
+        `Rules:\n` +
+        `- Create a practical schedule from ${startDateUtc} to ${endDateUtc} inclusive\n` +
+        `- Include only actual training sessions (no all-day reminders)\n` +
+        `- Use valid calendar dates in range\n` +
+        `- Include at least ${minSessionsPerWeek} sessions per week unless user history strongly suggests less\n` +
+        `- Keep each title <= 7 words and each mainSet <= 28 words`
+
+      const genAI = new GoogleGenerativeAI(apiKey)
+      const model = genAI.getGenerativeModel({ model: 'gemini-3.1-flash-lite' })
+      const result = await model.generateContent(prompt)
+      const responseText = result.response.text()
+
+      let parsed: { sessions?: unknown; safetyChecks?: unknown }
+      try {
+        parsed = JSON.parse(responseText) as { sessions?: unknown; safetyChecks?: unknown }
+      } catch {
+        throw new HttpsError(
+          'internal',
+          `Failed to parse generated plan. Raw: ${responseText.substring(0, 200)}`,
+        )
+      }
+
+      if (!Array.isArray(parsed.sessions) || parsed.sessions.length === 0) {
+        throw new HttpsError('internal', 'Invalid plan structure: missing sessions')
+      }
+
+      const sessions = (parsed.sessions as unknown[])
+        .map((raw) => {
+          const entry = (raw ?? {}) as Record<string, unknown>
+          const date = typeof entry.date === 'string' ? entry.date.trim() : ''
+          const title = typeof entry.title === 'string' ? entry.title.trim() : ''
+          const duration = typeof entry.duration === 'string' ? entry.duration.trim() : ''
+          const intensity = typeof entry.intensity === 'string' ? entry.intensity.trim() : ''
+          const mainSet = typeof entry.mainSet === 'string' ? entry.mainSet.trim() : ''
+          const type = typeof entry.type === 'string' ? entry.type.trim() : undefined
+          const notes = typeof entry.notes === 'string' ? entry.notes.trim() : undefined
+          const validDate = /^\d{4}-\d{2}-\d{2}$/.test(date)
+          if (!validDate || !title || !duration || !intensity || !mainSet) return null
+          const session: PlannedSession = { date, title, duration, intensity, mainSet }
+          if (type) session.type = type
+          if (notes) session.notes = notes
+          return session
+        })
+        .filter((v): v is PlannedSession => v !== null)
+        .sort((a, b) => a.date.localeCompare(b.date))
+
+      if (sessions.length === 0) {
+        throw new HttpsError('internal', 'Generated plan had no valid sessions')
+      }
+
+      const safetyChecks = Array.isArray(parsed.safetyChecks)
+        ? parsed.safetyChecks
+            .filter((v): v is string => typeof v === 'string' && Boolean(v.trim()))
+            .map((v) => v.trim())
+        : []
+
+      const response: TrainingPlanResponse = {
+        range: { value: rangeValue, unit: rangeUnit, startDateUtc, endDateUtc },
+        sessions,
+        safetyChecks,
+      }
+      return response
+    } catch (e) {
+      console.error('generateTrainingPlan failed', e)
+      if (e instanceof HttpsError) throw e
+      throw new HttpsError('internal', (e as Error)?.message || 'Unknown error')
+    }
   },
 )
 
