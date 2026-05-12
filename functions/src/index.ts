@@ -22,8 +22,6 @@ export type RecommendationResponse = {
   safetyChecks: string[]
 }
 
-type RecommendationDecision = 'pass' | 'accept'
-
 type RecommendationPreferences = {
   acceptedCount: number
   passedCount: number
