@@ -557,6 +557,7 @@ type CurrentDateContext = {
 }
 
 const dayNamesUtc = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
+const minSessionsPerWeek = 2
 
 function utcMidnightMs(date: Date): number {
   return Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate())
@@ -883,7 +884,7 @@ export const generateTrainingPlan = onCall(
         `- Create a practical schedule from ${startDateUtc} to ${endDateUtc} inclusive\n` +
         `- Include only actual training sessions (no all-day reminders)\n` +
         `- Use valid calendar dates in range\n` +
-        `- Include at least 2 sessions per week unless user history strongly suggests less\n` +
+        `- Include at least ${minSessionsPerWeek} sessions per week unless user history strongly suggests less\n` +
         `- Keep each title <= 7 words and each mainSet <= 28 words`
 
       const genAI = new GoogleGenerativeAI(apiKey)

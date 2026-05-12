@@ -23,6 +23,10 @@ type WorkoutRow = {
 }
 
 type MaybeFirebaseError = { code?: string; message?: string; details?: unknown }
+const MIN_PARSED_DURATION_MINUTES = 15
+const DEFAULT_DURATION_MINUTES = 60
+const PLAN_EVENT_BASE_HOUR_UTC = 7
+const PLAN_EVENT_OFFSET_HOURS = 2
 
 function detailsMessage(details: unknown): string | null {
   if (!details) return null
@@ -84,11 +88,17 @@ function parseDurationMinutes(value: string): number {
   const total = hourMinutes + minuteMinutes
   if (total > 0) return total
   const firstNumber = lower.match(/(\d+)/)
-  return firstNumber ? Math.max(15, Number(firstNumber[1])) : 60
+  return firstNumber
+    ? Math.max(MIN_PARSED_DURATION_MINUTES, Number(firstNumber[1]))
+    : DEFAULT_DURATION_MINUTES
 }
 
 function toIcsUtcDateTime(date: string, hour: number, minute: number): string {
-  const at = new Date(`${date}T${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}:00Z`)
+  const parts = /^(\d{4})-(\d{2})-(\d{2})$/.exec(date)
+  if (!parts) return ''
+  const at = new Date(
+    Date.UTC(Number(parts[1]), Number(parts[2]) - 1, Number(parts[3]), hour, minute, 0),
+  )
   if (Number.isNaN(at.getTime())) return ''
   const y = at.getUTCFullYear()
   const mo = String(at.getUTCMonth() + 1).padStart(2, '0')
@@ -225,7 +235,7 @@ export function Hub() {
       .map((session, idx) => {
         const existing = dayOffsets.get(session.date) ?? 0
         dayOffsets.set(session.date, existing + 1)
-        const startHour = 7 + existing * 2
+        const startHour = PLAN_EVENT_BASE_HOUR_UTC + existing * PLAN_EVENT_OFFSET_HOURS
         const start = toIcsUtcDateTime(session.date, startHour, 0)
         if (!start) return null
         const durationMinutes = parseDurationMinutes(session.duration)
@@ -369,7 +379,7 @@ export function Hub() {
               {planning ? 'Generating plan...' : 'Generate plan'}
             </button>
             <button type="button" className="secondary" onClick={downloadPlanAsIcs} disabled={!plan}>
-              Download gcal items (.ics)
+              Download Google Calendar (.ics)
             </button>
           </div>
         )}

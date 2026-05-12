@@ -47,6 +47,7 @@ export type WorkoutOption = {
 
 export type RecommendationResponse = {
   options: WorkoutOption[]
+  safetyChecks?: string[]
 }
 
 export type PlanRangeUnit = 'weeks' | 'months'
