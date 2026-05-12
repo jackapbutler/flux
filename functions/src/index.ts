@@ -4,8 +4,6 @@ import { GoogleGenerativeAI } from '@google/generative-ai'
 import { initializeApp } from 'firebase-admin/app'
 import { getFirestore, FieldValue } from 'firebase-admin/firestore'
 import crypto from 'node:crypto'
-import * as fs from 'node:fs'
-import * as path from 'node:path'
 
 initializeApp()
 
@@ -32,15 +30,6 @@ const stravaClientId = defineSecret('STRAVA_CLIENT_ID')
 const stravaClientSecret = defineSecret('STRAVA_CLIENT_SECRET')
 const stravaStateSecret = defineSecret('STRAVA_STATE_SECRET')
 const appBaseUrl = defineString('APP_BASE_URL', { default: '' })
-
-function readGuidanceText(): string {
-  try {
-    const p = path.resolve(__dirname, '..', 'workout_guidance.txt')
-    return fs.readFileSync(p, 'utf8')
-  } catch {
-    return ''
-  }
-}
 
 function formatDateContext(ctx: { nowIsoUtc: string; dateUtc: string; dayOfWeekUtc: string }): string {
   return `Today is ${ctx.dayOfWeekUtc}, ${ctx.dateUtc} (UTC).`
@@ -706,23 +695,23 @@ export const recommendNextWorkout = onCall(
 
     const { currentDateContext, workouts, contextCount } = await getRecentRecommendationContext(uid)
 
-    const guidance = readGuidanceText()
     const apiKey = requireGeminiKey()
 
     const prompt =
-      `You are Flux, an evidence-based personal trainer.\n\n` +
+      `You are Flux, an evidence-based personal trainer. Be calm, modern, and concise — no hype.\n\n` +
       `TRAINING PRINCIPLES:\n` +
+      `- Safety first: prioritise injury prevention, sleep, and consistency\n` +
       `- RPE (1-10): easy 5-6, moderate 6-7, challenging 7-8+; target 1-3 RIR for strength\n` +
+      `- Use Heart Rate zones and Power (where available) alongside RPE\n` +
       `- Progressive overload: increase load, volume, or complexity systematically (+5-10% when appropriate)\n` +
+      `- Polarised training (80/20 easy/hard); avoid jumps >10% in volume or intensity week-to-week\n` +
       `- Periodization & autoregulation: vary intensity/volume weekly; adjust to daily readiness and recent load\n` +
       `- Fatigue management: after heavy/long sessions reduce next load; watch for soreness, poor sleep, low energy\n` +
       `- Recovery: structured rest, sleep, nutrition (1.6-2.2g protein/kg), periodic deloads (~every 5-6 weeks)\n` +
-      `- Safety first: never overprescribe intensity when fatigue signals present\n` +
       `- Volume anchoring: use past workout durations/distances as baseline; respect historical modality patterns\n` +
       `- No scheduling: do not reference specific days (e.g. "tomorrow") or times of day\n` +
-      `- Polarised training (80/20 easy/hard); prefer consistency over heroic sessions\n` +
+      `- Explain the "why" briefly in 1-2 short bullets; recommend 1-3 options picking the best default from recent load\n` +
       `- Concise copy for mobile: title ≤6 words, duration/intensity ≤10 words, mainSet ≤22 words, each why ≤14 words\n\n` +
-      `GUIDANCE:\n${guidance || '(missing guidance)'}\n\n` +
       `GOAL:\n${goalText || '(not set)'}\n\n` +
       `FITNESS PERSONA:\n${persona || '(not built yet)'}\n\n` +
       `DATE: ${formatDateContext(currentDateContext)}\n\n` +
@@ -824,10 +813,13 @@ export const refineRecommendation = onCall({ secrets: [geminiApiKey] }, async (r
       .join('\n')
 
     const prompt =
-      `You are Flux, an evidence-based personal trainer refining a recommendation based on user feedback.\n\n` +
+      `You are Flux, an evidence-based personal trainer refining a recommendation based on user feedback. Be calm, modern, and concise — no hype.\n\n` +
       `TRAINING PRINCIPLES:\n` +
+      `- Safety first: prioritise injury prevention, sleep, and consistency\n` +
       `- RPE (1-10): easy 5-6, moderate 6-7, challenging 7-8+; target 1-3 RIR for strength\n` +
+      `- Use Heart Rate zones and Power (where available) alongside RPE\n` +
       `- Progressive overload: increase load, volume, or complexity systematically\n` +
+      `- Polarised training (80/20 easy/hard); avoid jumps >10% in volume or intensity\n` +
       `- Periodization & autoregulation: vary intensity/volume; adjust to daily readiness and recent load\n` +
       `- Fatigue signals: soreness/tiredness → suggest active recovery or reduced intensity\n` +
       `- Time constraints: focus quality over volume if user is time-limited\n` +
@@ -835,6 +827,7 @@ export const refineRecommendation = onCall({ secrets: [geminiApiKey] }, async (r
       `- Volume anchoring: reference historical durations/distances; stay within user's typical range unless asked otherwise\n` +
       `- No scheduling: do not reference specific days or times of day\n` +
       `- Encourage context: if gym session type unknown, ask user to "Add context" to that workout\n` +
+      `- Explain the "why" briefly in 1-2 short bullets\n` +
       `- Concise copy for mobile: title ≤6 words, duration/intensity ≤10 words, mainSet ≤22 words, each why ≤14 words\n\n` +
       `GOAL:\n${goalText || '(not set)'}\n\n` +
       `FITNESS PERSONA:\n${persona || '(not built yet)'}\n\n` +
