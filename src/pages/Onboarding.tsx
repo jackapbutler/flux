@@ -145,17 +145,16 @@ export function Onboarding() {
   return (
     <main className="stack">
       <section className="card hero">
-        <h2>Set up your training space</h2>
+        <h2>Settings</h2>
         <p className="muted">
-          Complete these two steps to unlock synced history and high-quality workout
-          recommendations.
+          Complete to unlock synced history and workout recommendations.
         </p>
       </section>
 
       <section className="grid">
         <div className="card stack">
           <div className="label">Step 1</div>
-          <h2>Define your goals and preferences</h2>
+          <h2>Define goals and preferences</h2>
           <p className="muted">
             Share your goal, preferences, and environment constraints. Flux uses this with your
             workout history to shape recommendations.
@@ -170,7 +169,7 @@ export function Onboarding() {
             />
           </label>
           <label className="field">
-            <span>Workout environment constraints</span>
+            <span>Environment constraints</span>
             <input
               value={workoutEnvironmentConstraintsText}
               onChange={(e) => setEnvironmentDraft(e.target.value)}

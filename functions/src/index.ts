@@ -509,10 +509,10 @@ async function getStravaAccessToken(uid: string): Promise<string> {
   const snap = await ref.get()
   const data = snap.data() as
     | {
-        accessToken?: unknown
-        refreshToken?: unknown
-        expiresAt?: unknown
-      }
+      accessToken?: unknown
+      refreshToken?: unknown
+      expiresAt?: unknown
+    }
     | undefined
 
   if (!data) throw new HttpsError('failed-precondition', 'Strava not connected')
@@ -580,6 +580,7 @@ async function buildFitnessPersonaText(uid: string): Promise<string> {
     goalText?: unknown
     workoutEnvironmentConstraintsText?: unknown
     fitnessPersonaText?: unknown
+    fitnessPersonaPreferenceText?: unknown
   }
   const goalText = typeof userData.goalText === 'string' ? userData.goalText.trim() : ''
   const workoutEnvironmentConstraintsText =
@@ -587,6 +588,7 @@ async function buildFitnessPersonaText(uid: string): Promise<string> {
       ? userData.workoutEnvironmentConstraintsText.trim()
       : ''
   const previousPersona = typeof userData.fitnessPersonaText === 'string' ? userData.fitnessPersonaText.trim() : ''
+  const preferenceText = typeof userData.fitnessPersonaPreferenceText === 'string' ? userData.fitnessPersonaPreferenceText.trim() : ''
 
   const workoutsSnap = await db
     .collection(`users/${uid}/workouts`)
@@ -642,8 +644,10 @@ async function buildFitnessPersonaText(uid: string): Promise<string> {
     `NEW CONTEXT:\n` +
     `- Goal & preferences: ${goalText || '(not set)'}\n` +
     `- Workout environment constraints: ${workoutEnvironmentConstraintsText || '(not set)'}\n` +
+    `- Expressed preferences (from workout recommendations): ${preferenceText || '(no preference data yet)'}\n` +
     `- Recent patterns: ${patterns}\n` +
-    `- Recent workouts (JSON): ${JSON.stringify(workouts.slice(0, 10), null, 2)}\n\n` +
+    `- Recent workouts (JSON): ${JSON.stringify(workouts.slice(0, 10), null, 2)}\n\n`
+    +
     `INSTRUCTIONS:\n` +
     `1. Maintain long-term insights from the previous persona that are still relevant.\n` +
     `2. Override sections if new data shows a shift in behavior, modality, or fatigue levels.\n` +
@@ -878,128 +882,135 @@ async function getRecentRecommendationContext(uid: string): Promise<{
 export const buildFitnessPersona = onCall(
   { secrets: [geminiApiKey], invoker: 'public' },
   async (req) => {
-  try {
-    if (!req.auth) throw new HttpsError('unauthenticated', 'Sign in')
-    const text = await buildFitnessPersonaText(req.auth.uid)
-    await db.doc(`users/${req.auth.uid}`).set(
-      {
-        fitnessPersonaText: text,
-        fitnessPersonaUpdatedAt: FieldValue.serverTimestamp(),
-        updatedAt: FieldValue.serverTimestamp(),
-      },
-      { merge: true },
-    )
-    return { text }
-  } catch (e) {
-    console.error('buildFitnessPersona failed', e)
-    if (e instanceof HttpsError) throw e
-    throw new HttpsError('internal', (e as Error)?.message || 'Unknown error')
-  }
+    try {
+      if (!req.auth) throw new HttpsError('unauthenticated', 'Sign in')
+      const text = await buildFitnessPersonaText(req.auth.uid)
+      await db.doc(`users/${req.auth.uid}`).set(
+        {
+          fitnessPersonaText: text,
+          fitnessPersonaUpdatedAt: FieldValue.serverTimestamp(),
+          updatedAt: FieldValue.serverTimestamp(),
+        },
+        { merge: true },
+      )
+      return { text }
+    } catch (e) {
+      console.error('buildFitnessPersona failed', e)
+      if (e instanceof HttpsError) throw e
+      throw new HttpsError('internal', (e as Error)?.message || 'Unknown error')
+    }
   },
 )
 
 export const recommendNextWorkout = onCall(
   { secrets: [geminiApiKey], invoker: 'public' },
   async (req) => {
-  try {
-    if (!req.auth) throw new HttpsError('unauthenticated', 'Sign in')
-
-    const uid = req.auth.uid
-
-    const userSnap = await db.doc(`users/${uid}`).get()
-    const userData = (userSnap.data() ?? {}) as {
-      goalText?: unknown
-      workoutEnvironmentConstraintsText?: unknown
-      fitnessPersonaText?: unknown
-      fitnessPersonaPreferenceText?: unknown
-    }
-
-    const goalText = typeof userData.goalText === 'string' ? userData.goalText.trim() : ''
-    const workoutEnvironmentConstraintsText =
-      typeof userData.workoutEnvironmentConstraintsText === 'string'
-        ? userData.workoutEnvironmentConstraintsText.trim()
-        : ''
-    const persona =
-      typeof userData.fitnessPersonaText === 'string' ? userData.fitnessPersonaText.trim() : ''
-    const preferencePersona =
-      typeof userData.fitnessPersonaPreferenceText === 'string'
-        ? userData.fitnessPersonaPreferenceText.trim()
-        : ''
-
-    const { currentDateContext, workouts, contextCount } = await getRecentRecommendationContext(uid)
-
-    const apiKey = requireGeminiKey()
-
-    const prompt =
-      `You are Flux, an evidence-based personal trainer. Be calm, modern, and concise — no hype.\n\n` +
-      `TRAINING PRINCIPLES:\n` +
-      `- Safety first: prioritise injury prevention, sleep, and consistency\n` +
-      `- RPE (1-10): easy 5-6, moderate 6-7, challenging 7-8+; target 1-3 RIR for strength\n` +
-      `- Use Heart Rate zones and Power (where available) alongside RPE\n` +
-      `- Progressive overload: increase load, volume, or complexity systematically (+5-10% when appropriate)\n` +
-      `- Polarised training (80/20 easy/hard); avoid jumps >10% in volume or intensity week-to-week\n` +
-      `- Periodization & autoregulation: vary intensity/volume weekly; adjust to daily readiness and recent load\n` +
-      `- Fatigue management: after heavy/long sessions reduce next load; watch for soreness, poor sleep, low energy\n` +
-      `- Recovery: structured rest, sleep, nutrition (1.6-2.2g protein/kg), periodic deloads (~every 5-6 weeks)\n` +
-      `- Volume anchoring: use past workout durations/distances as baseline; respect historical modality patterns\n` +
-      `- No scheduling: do not reference specific days (e.g. "tomorrow") or times of day\n` +
-      `- Explain the "why" briefly in 1-2 short bullets; recommend 1-3 options picking the best default from recent load\n` +
-      `- Concise copy for mobile: title ≤6 words, duration/intensity ≤10 words, mainSet ≤22 words, each why ≤14 words\n\n` +
-      `GOAL & PREFERENCES:\n${goalText || '(not set)'}\n\n` +
-      `WORKOUT ENVIRONMENT CONSTRAINTS:\n${workoutEnvironmentConstraintsText || '(not set)'}\n\n` +
-      `FITNESS PERSONA:\n${persona || '(not built yet)'}\n\n` +
-      `PREFERENCE FEEDBACK PERSONA:\n${preferencePersona || '(no recommendation feedback yet)'}\n\n` +
-      `DATE: ${formatDateContext(currentDateContext)}\n\n` +
-      `RECENT WORKOUTS (last ${workouts.length}, ${contextCount} with notes):\n` +
-      `${formatWorkoutsAsText(workouts)}\n\n` +
-      `Return ONLY valid JSON (no markdown) matching this schema:\n` +
-      `{\n` +
-      `  "options": [\n` +
-      `    {\n` +
-      `      "title": "Short energizing title",\n` +
-      `      "type": "run",\n` +
-      `      "duration": "45 minutes",\n` +
-      `      "intensity": "RPE 6-7 (Moderate)",\n` +
-      `      "mainSet": "4x2min at 85% max pace, 90sec jog recovery",\n` +
-      `      "why": ["Builds aerobic base without excessive fatigue", "Volume matches recent training load"]\n` +
-      `    }\n` +
-      `  ],\n` +
-      `  "safetyChecks": ["Reduce RPE by 1 if feeling fatigued", "Stop if HR stays elevated after effort"]\n` +
-      `}\n\n` +
-      `Generate 1-3 options balancing progressive overload and recovery. Safety checks must reflect the user's recent history.`
-
-    const genAI = new GoogleGenerativeAI(apiKey)
-    const model = genAI.getGenerativeModel({ model: 'gemini-3.1-flash-lite' })
-    const result = await model.generateContent(prompt)
-    const responseText = result.response.text()
-    
-    // Parse the JSON response
-    let parsed: RecommendationResponse
     try {
-      parsed = JSON.parse(responseText)
-    } catch {
-      // If parsing fails, return error with context
-      throw new HttpsError(
-        'internal',
-        `Failed to parse recommendation. Raw: ${responseText.substring(0, 200)}`
-      )
-    }
-    
-    // Validate the response structure
-    if (!parsed.options || !Array.isArray(parsed.options) || parsed.options.length === 0) {
-      throw new HttpsError('internal', 'Invalid recommendation structure: missing options')
-    }
-    
-    if (!parsed.safetyChecks || !Array.isArray(parsed.safetyChecks)) {
-      throw new HttpsError('internal', 'Invalid recommendation structure: missing safetyChecks')
-    }
+      if (!req.auth) throw new HttpsError('unauthenticated', 'Sign in')
 
-    return parsed
-  } catch (e) {
-    console.error('recommendNextWorkout failed', e)
-    if (e instanceof HttpsError) throw e
-    throw new HttpsError('internal', (e as Error)?.message || 'Unknown error')
-  }
+      const uid = req.auth.uid
+
+      const userSnap = await db.doc(`users/${uid}`).get()
+      const userData = (userSnap.data() ?? {}) as {
+        goalText?: unknown
+        workoutEnvironmentConstraintsText?: unknown
+        fitnessPersonaText?: unknown
+        fitnessPersonaPreferenceText?: unknown
+      }
+
+      const goalText = typeof userData.goalText === 'string' ? userData.goalText.trim() : ''
+      const workoutEnvironmentConstraintsText =
+        typeof userData.workoutEnvironmentConstraintsText === 'string'
+          ? userData.workoutEnvironmentConstraintsText.trim()
+          : ''
+      const persona =
+        typeof userData.fitnessPersonaText === 'string' ? userData.fitnessPersonaText.trim() : ''
+      const preferencePersona =
+        typeof userData.fitnessPersonaPreferenceText === 'string'
+          ? userData.fitnessPersonaPreferenceText.trim()
+          : ''
+
+      const { currentDateContext, workouts, contextCount } = await getRecentRecommendationContext(uid)
+
+      const apiKey = requireGeminiKey()
+
+      const prompt =
+        `You are Flux, an evidence-based personal trainer. Be calm, modern, and concise — no hype.\n\n` +
+        `TRAINING PRINCIPLES:\n` +
+        `- Safety first: prioritise injury prevention, sleep, and consistency\n` +
+        `- RPE (1-10): easy 5-6, moderate 6-7, challenging 7-8+; target 1-3 RIR for strength\n` +
+        `- Use Heart Rate zones and Power (where available) alongside RPE\n` +
+        `- Progressive overload: increase load, volume, or complexity systematically (+5-10% when appropriate)\n` +
+        `- Polarised training (80/20 easy/hard); avoid jumps >10% in volume or intensity week-to-week\n` +
+        `- Periodization & autoregulation: vary intensity/volume weekly; adjust to daily readiness and recent load\n` +
+        `- Fatigue management: after heavy/long sessions reduce next load; watch for soreness, poor sleep, low energy\n` +
+        `- Recovery: structured rest, sleep, nutrition (1.6-2.2g protein/kg), periodic deloads (~every 5-6 weeks)\n` +
+        `- Volume anchoring: use past workout durations/distances as baseline; respect historical modality patterns. For gym workouts, we usually expect a range of 4-6 exercises.\n` +
+        `- No scheduling: do not reference specific days (e.g. "tomorrow") or times of day\n` +
+        `- Explain the "why" briefly in 1-2 short bullets; recommend 1-3 options picking the best default from recent load\n` +
+        `- Concise copy for mobile: title ≤6 words, duration/intensity ≤10 words, mainSet ≤22 words, each why ≤14 words\n\n` +
+        `GOAL & PREFERENCES:\n${goalText || '(not set)'}\n\n` +
+        `WORKOUT ENVIRONMENT CONSTRAINTS:\n${workoutEnvironmentConstraintsText || '(not set)'}\n\n` +
+        `FITNESS PERSONA:\n${persona || '(not built yet)'}\n\n` +
+        `PREFERENCE FEEDBACK PERSONA:\n${preferencePersona || '(no recommendation feedback yet)'}\n\n` +
+        `DATE: ${formatDateContext(currentDateContext)}\n\n` +
+        `RECENT WORKOUTS (last ${workouts.length}, ${contextCount} with notes):\n` +
+        `${formatWorkoutsAsText(workouts)}\n\n` +
+        `Return ONLY valid JSON (no markdown) matching this schema:\n` +
+        `{\n` +
+        `  "options": [\n` +
+        `    {\n` +
+        `      "title": "Short energizing title",\n` +
+        `      "type": "run",\n` +
+        `      "duration": "45 minutes",\n` +
+        `      "intensity": "RPE 6-7 (Moderate)",\n` +
+        `      "mainSet": "4x2min at 85% max pace, 90sec jog recovery",\n` +
+        `      "why": ["Builds aerobic base without excessive fatigue", "Volume matches recent training load"]\n` +
+        `    }\n` +
+        `  ],\n` +
+        `  "safetyChecks": ["Reduce RPE by 1 if feeling fatigued", "Stop if HR stays elevated after effort"]\n` +
+        `}\n\n` +
+        `Generate 1-3 options balancing progressive overload and recovery. Safety checks must reflect the user's recent history.`
+
+      const genAI = new GoogleGenerativeAI(apiKey)
+      const model = genAI.getGenerativeModel({ model: 'gemini-3.1-flash-lite' })
+      const result = await model.generateContent(prompt)
+      let responseText = result.response.text()
+
+      // Clean up markdown formatting if present
+      if (responseText.includes('```json')) {
+        responseText = responseText.split('```json')[1].split('```')[0].trim()
+      } else if (responseText.includes('```')) {
+        responseText = responseText.split('```')[1].split('```')[0].trim()
+      }
+
+      // Parse the JSON response
+      let parsed: RecommendationResponse
+      try {
+        parsed = JSON.parse(responseText) as RecommendationResponse
+      } catch (jsonErr) {
+        console.error('JSON parse failed in recommendNextWorkout', { responseText, jsonErr })
+        throw new HttpsError(
+          'internal',
+          `Failed to parse recommendation JSON: ${(jsonErr as Error)?.message || 'Invalid format'}. Raw snippet: ${responseText.substring(0, 100)}`,
+        )
+      }
+
+      // Validate the response structure
+      if (!parsed.options || !Array.isArray(parsed.options) || parsed.options.length === 0) {
+        throw new HttpsError('internal', 'Invalid recommendation structure: missing options')
+      }
+
+      if (!parsed.safetyChecks || !Array.isArray(parsed.safetyChecks)) {
+        throw new HttpsError('internal', 'Invalid recommendation structure: missing safetyChecks')
+      }
+
+      return parsed
+    } catch (e) {
+      console.error('recommendNextWorkout failed', e)
+      if (e instanceof HttpsError) throw e
+      throw new HttpsError('internal', (e as Error)?.message || 'Unknown error')
+    }
   },
 )
 
@@ -1085,15 +1096,23 @@ export const generateTrainingPlan = onCall(
       const genAI = new GoogleGenerativeAI(apiKey)
       const model = genAI.getGenerativeModel({ model: 'gemini-3.1-flash-lite' })
       const result = await model.generateContent(prompt)
-      const responseText = result.response.text()
+      let responseText = result.response.text()
+
+      // Clean up markdown formatting if present
+      if (responseText.includes('```json')) {
+        responseText = responseText.split('```json')[1].split('```')[0].trim()
+      } else if (responseText.includes('```')) {
+        responseText = responseText.split('```')[1].split('```')[0].trim()
+      }
 
       let parsed: { sessions?: unknown; safetyChecks?: unknown }
       try {
         parsed = JSON.parse(responseText) as { sessions?: unknown; safetyChecks?: unknown }
-      } catch {
+      } catch (jsonErr) {
+        console.error('JSON parse failed', { responseText, jsonErr })
         throw new HttpsError(
           'internal',
-          `Failed to parse generated plan. Raw: ${responseText.substring(0, 200)}`,
+          `Failed to parse plan JSON: ${(jsonErr as Error)?.message || 'Invalid format'}. Raw snippet: ${responseText.substring(0, 100)}`,
         )
       }
 
@@ -1127,8 +1146,8 @@ export const generateTrainingPlan = onCall(
 
       const safetyChecks = Array.isArray(parsed.safetyChecks)
         ? parsed.safetyChecks
-            .filter((v): v is string => typeof v === 'string' && Boolean(v.trim()))
-            .map((v) => v.trim())
+          .filter((v): v is string => typeof v === 'string' && Boolean(v.trim()))
+          .map((v) => v.trim())
         : []
 
       const response: TrainingPlanResponse = {
@@ -1211,7 +1230,7 @@ export const refineRecommendation = onCall({ secrets: [geminiApiKey] }, async (r
       `- Fatigue signals: soreness/tiredness → suggest active recovery or reduced intensity\n` +
       `- Time constraints: focus quality over volume if user is time-limited\n` +
       `- Equipment: adapt to available tools (no equipment, dumbbells, gym, outdoor)\n` +
-      `- Volume anchoring: reference historical durations/distances; stay within user's typical range unless asked otherwise\n` +
+      `- Volume anchoring: reference historical durations/distances; stay within user's typical range unless asked otherwise. For gym workouts, we usually expect a range of 4-6 exercises.\n` +
       `- No scheduling: do not reference specific days or times of day\n` +
       `- Encourage context: if gym session type unknown, ask user to "Add context" to that workout\n` +
       `- Explain the "why" briefly in 1-2 short bullets\n` +
@@ -1245,16 +1264,24 @@ export const refineRecommendation = onCall({ secrets: [geminiApiKey] }, async (r
     const genAI = new GoogleGenerativeAI(apiKey)
     const model = genAI.getGenerativeModel({ model: 'gemini-3.1-flash-lite' })
     const result = await model.generateContent(prompt)
-    const responseText = result.response.text()
+    let responseText = result.response.text()
+
+    // Clean up markdown formatting if present
+    if (responseText.includes('```json')) {
+      responseText = responseText.split('```json')[1].split('```')[0].trim()
+    } else if (responseText.includes('```')) {
+      responseText = responseText.split('```')[1].split('```')[0].trim()
+    }
 
     // Parse the JSON response
     let parsed: RecommendationResponse
     try {
-      parsed = JSON.parse(responseText)
-    } catch {
+      parsed = JSON.parse(responseText) as RecommendationResponse
+    } catch (jsonErr) {
+      console.error('JSON parse failed in refineRecommendation', { responseText, jsonErr })
       throw new HttpsError(
         'internal',
-        `Failed to parse refined recommendation. Raw: ${responseText.substring(0, 200)}`
+        `Failed to parse refined recommendation JSON: ${(jsonErr as Error)?.message || 'Invalid format'}. Raw snippet: ${responseText.substring(0, 100)}`,
       )
     }
 
@@ -1275,7 +1302,7 @@ export const refineRecommendation = onCall({ secrets: [geminiApiKey] }, async (r
   }
 })
 
-export const respondToWorkoutRecommendation = onCall({ invoker: 'public' }, async (req) => {
+export const respondToWorkoutRecommendation = onCall({ secrets: [geminiApiKey], invoker: 'public' }, async (req) => {
   try {
     if (!req.auth) throw new HttpsError('unauthenticated', 'Sign in')
 
@@ -1349,6 +1376,18 @@ export const respondToWorkoutRecommendation = onCall({ invoker: 'public' }, asyn
       return { saved, preferenceSummary }
     })
 
+    // Update the fitness persona in the background to reflect the new preferences
+    try {
+      const personaText = await buildFitnessPersonaText(uid)
+      await userRef.update({
+        fitnessPersonaText: personaText,
+        fitnessPersonaUpdatedAt: FieldValue.serverTimestamp(),
+      })
+    } catch (personaErr) {
+      console.error('Failed to update persona after recommendation response', personaErr)
+      // Non-blocking for the recommendation response itself
+    }
+
     return result
   } catch (e) {
     console.error('respondToWorkoutRecommendation failed', e)
@@ -1383,7 +1422,7 @@ export const transcribeWorkoutVoice = onCall({ secrets: [geminiApiKey] }, async 
   try {
     const apiKey = requireGeminiKey()
     const genAI = new GoogleGenerativeAI(apiKey)
-    const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' })
+    const model = genAI.getGenerativeModel({ model: 'gemini-3.1-flash-lite' })
 
     const result = await model.generateContent([
       {

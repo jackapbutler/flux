@@ -86,6 +86,23 @@ Flux is built with a **Serene Blue** and **Warm Amber** palette, utilizing soft 
 
 ---
 
+## MCP Configuration
+To use the Firebase MCP server with this project, add the following to your MCP client configuration:
+
+```json
+{
+  "mcpServers": {
+    "firebase-mcp-server": {
+      "command": "npx",
+      "args": ["-y", "firebase-tools@latest", "mcp"]
+    }
+  }
+}
+```
+
+---
+
 ## 📄 License
 
 This project is for demonstration and personal use. Ensure you comply with Strava's API usage guidelines when deploying.
+

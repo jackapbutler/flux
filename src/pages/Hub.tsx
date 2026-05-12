@@ -1,8 +1,7 @@
-import { collection, limit, onSnapshot, orderBy, query, type Timestamp } from 'firebase/firestore'
+import { collection, limit, onSnapshot, orderBy, query } from 'firebase/firestore'
 import { httpsCallable } from 'firebase/functions'
 import { useEffect, useMemo, useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
-import { WorkoutContextEditor } from '../components/WorkoutContextEditor'
+import { useNavigate } from 'react-router-dom'
 import { RecommendationCard } from '../components/RecommendationCard'
 import { RecommendationChat } from '../components/RecommendationChat'
 import { WorkoutIcon } from '../components/WorkoutIcon'
@@ -13,22 +12,9 @@ import type {
   RecommendationResponse,
   SavedWorkout,
   TrainingPlanResponse,
+  Workout,
   WorkoutOption,
 } from '../lib/types'
-
-type WorkoutRow = {
-  id: string
-  strava?: {
-    type?: string | null
-    name?: string | null
-    startDate?: string | null
-    distance?: number | null
-    elapsedTime?: number | null
-  }
-  context?: { text?: string | null; tags?: string[] | null; voiceUrl?: string | null; updatedAt?: Timestamp | null }
-}
-
-type SavedWorkoutRow = SavedWorkout
 
 type MaybeFirebaseError = { code?: string; message?: string; details?: unknown }
 const MIN_PARSED_DURATION_MINUTES = 15
@@ -67,16 +53,6 @@ function errorMessage(err: unknown): string {
   const details = detailsMessage(e?.details)
   const core = code ? `${code}: ${msg}` : msg
   return details ? `${core}\n${details}` : core
-}
-
-function formatMinutes(seconds?: number | null): string {
-  if (!seconds || seconds <= 0) return ''
-  return `${Math.round(seconds / 60)} min`
-}
-
-function formatKilometers(meters?: number | null): string {
-  if (!meters || meters <= 0) return ''
-  return `${(meters / 1000).toFixed(1)} km`
 }
 
 function escapeIcsText(value: string): string {
@@ -131,21 +107,20 @@ function formatPlanDate(date: string): string {
 export function Hub() {
   const nav = useNavigate()
   const { user, profile } = useAuth()
-  const [workouts, setWorkouts] = useState<WorkoutRow[]>([])
+  const [workouts, setWorkouts] = useState<Workout[]>([])
   const [syncing, setSyncing] = useState(false)
   const [recommending, setRecommending] = useState(false)
   const [planning, setPlanning] = useState(false)
   const [respondingToRecommendation, setRespondingToRecommendation] = useState(false)
   const [recommendation, setRecommendation] = useState<RecommendationResponse | null>(null)
   const [currentOptionIndex, setCurrentOptionIndex] = useState(0)
-  const [savedWorkouts, setSavedWorkouts] = useState<SavedWorkoutRow[]>([])
+  const [savedWorkouts, setSavedWorkouts] = useState<SavedWorkout[]>([])
   const [plan, setPlan] = useState<TrainingPlanResponse | null>(null)
   const [planRangeValue, setPlanRangeValue] = useState(4)
   const [planRangeUnit, setPlanRangeUnit] = useState<PlanRangeUnit>('weeks')
-  const [expandedWorkoutId, setExpandedWorkoutId] = useState<string | null>(null)
+  const [expandedSavedId, setExpandedSavedId] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [status, setStatus] = useState<string | null>(null)
-  const [activeTab, setActiveTab] = useState<'plan' | 'log'>('plan')
 
   const workoutsRef = useMemo(() => {
     if (!user) return null
@@ -162,7 +137,7 @@ export function Hub() {
     const q = query(workoutsRef, orderBy('strava.startDate', 'desc'), limit(25))
     return onSnapshot(q, (snap) => {
       setWorkouts(
-        snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<WorkoutRow, 'id'>) })),
+        snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<Workout, 'id'>) })),
       )
     })
   }, [workoutsRef])
@@ -172,7 +147,7 @@ export function Hub() {
     const q = query(savedWorkoutsRef, orderBy('savedAt', 'desc'), limit(10))
     return onSnapshot(q, (snap) => {
       setSavedWorkouts(
-        snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<SavedWorkoutRow, 'id'>) })),
+        snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<SavedWorkout, 'id'>) })),
       )
     })
   }, [savedWorkoutsRef])
@@ -390,88 +365,56 @@ export function Hub() {
       </section>
 
       <section className="card stack">
-        <h2>Plan next workout</h2>
-        <p className="muted">
-          Goal & preferences: {profile?.goalText ? `"${profile.goalText}"` : 'Not set yet'}
-        </p>
-        <p className="muted">
-          Environment constraints:{' '}
-          {profile?.workoutEnvironmentConstraintsText
-            ? `"${profile.workoutEnvironmentConstraintsText}"`
-            : 'Not set yet'}
-        </p>
+        <div className="row" style={{ justifyContent: 'space-between', alignItems: 'flex-start' }}>
+          <div className="stack" style={{ gap: 4 }}>
+            <h2>Plan next workout</h2>
+            <div className="stack" style={{ gap: 2 }}>
+              <p className="muted" style={{ fontSize: '13px' }}>
+                Goal: {profile?.goalText ? `"${profile.goalText}"` : 'Not set'}
+              </p>
+              <p className="muted" style={{ fontSize: '13px' }}>
+                Environment: {profile?.workoutEnvironmentConstraintsText ? `"${profile.workoutEnvironmentConstraintsText}"` : 'Not set'}
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            className="secondary"
+            style={{ minHeight: 'auto', padding: '6px 12px', fontSize: '12px' }}
+            onClick={() => void sync()}
+            disabled={syncing}
+          >
+            {syncing ? 'Syncing...' : 'Refresh sync'}
+          </button>
+        </div>
 
-        <div className="row">
+        <div className="stack" style={{ gap: 16, marginTop: 8 }}>
           {!connected ? (
             <button type="button" className="secondary" onClick={() => nav('/onboarding')}>
-              Connect Strava first
+              Connect Strava to get started
             </button>
-          ) : (
-            <button type="button" className="secondary" onClick={() => void sync()} disabled={syncing}>
-              {syncing ? 'Syncing...' : workouts.length === 0 ? 'Sync Strava history' : 'Refresh sync'}
-            </button>
-          )}
-
-          {workouts.length > 0 && (
+          ) : workouts.length > 0 ? (
             <button
               type="button"
               className="primary"
+              style={{ padding: '16px', fontSize: '16px', width: '50%' }}
               onClick={() => void recommend()}
               disabled={recommending}
             >
               {recommending ? 'Generating...' : 'Next workout'}
             </button>
+          ) : (
+            <p className="muted" style={{ fontSize: '13px' }}>
+              Sync your Strava history to unlock personalized recommendations.
+            </p>
           )}
         </div>
 
-        {workouts.length > 0 && (
-          <div className="row planRangeControls">
-            <span className="muted">Plan range</span>
-            <input
-              type="number"
-              min={1}
-              max={planRangeUnit === 'weeks' ? 24 : 12}
-              value={planRangeValue}
-              onChange={(e) => {
-                const next = Number(e.target.value)
-                setPlanRangeValue(Number.isFinite(next) && next > 0 ? Math.floor(next) : 1)
-                setPlan(null)
-              }}
-              className="planRangeInput"
-              disabled={planning}
-            />
-            <select
-              value={planRangeUnit}
-              onChange={(e) => {
-                setPlanRangeUnit(e.target.value as PlanRangeUnit)
-                setPlan(null)
-              }}
-              className="planRangeSelect"
-              disabled={planning}
-            >
-              <option value="weeks">Weeks</option>
-              <option value="months">Months</option>
-            </select>
-            <button type="button" className="primary" onClick={() => void generatePlan()} disabled={planning}>
-              {planning ? 'Generating plan...' : 'Generate plan'}
-            </button>
-            <button type="button" className="secondary" onClick={downloadPlanAsIcs} disabled={!plan}>
-              Download Google Calendar (.ics)
-            </button>
-          </div>
-        )}
-
-        {workouts.length === 0 && connected && !syncing && (
-          <p className="muted" style={{ fontSize: '13px' }}>
-            Sync your Strava history to give Flux context for your recommendations.
-          </p>
-        )}
-
-        {status ? <p className="muted">{status}</p> : null}
-        {error ? <p className="error">{error}</p> : null}
+        {status ? <p className="muted" style={{ fontSize: '13px' }}>{status}</p> : null}
+        {error ? <p className="error" style={{ fontSize: '13px' }}>{error}</p> : null}
 
         {recommendation ? (
-          <div className="stack">
+          <div className="stack" style={{ marginTop: 24, paddingTop: 24, borderTop: '1px solid var(--border)' }}>
             <div className="label">Recommended workout</div>
 
             {currentRecommendationOption ? (
@@ -499,6 +442,61 @@ export function Hub() {
             />
           </div>
         ) : null}
+
+        {workouts.length > 0 && connected && (
+          <div className="stack" style={{ marginTop: 24, paddingTop: 24, borderTop: '1px solid var(--border)', gap: 16 }}>
+            <div className="stack" style={{ gap: 4 }}>
+              <div className="label" style={{ marginBottom: 0 }}>Long-range planning</div>
+              <p className="muted" style={{ fontSize: '12px' }}>Generate a multi-week schedule based on your current fitness.</p>
+            </div>
+
+            <div className="row" style={{ flexWrap: 'wrap', gap: 12 }}>
+              <div className="row" style={{ gap: 8, flex: '1 1 auto' }}>
+                <input
+                  type="number"
+                  min={1}
+                  max={planRangeUnit === 'weeks' ? 24 : 12}
+                  value={planRangeValue}
+                  onChange={(e) => {
+                    const next = Number(e.target.value)
+                    setPlanRangeValue(Number.isFinite(next) && next > 0 ? Math.floor(next) : 1)
+                    setPlan(null)
+                  }}
+                  className="planRangeInput"
+                  style={{ width: '70px' }}
+                  disabled={planning}
+                />
+                <select
+                  value={planRangeUnit}
+                  onChange={(e) => {
+                    setPlanRangeUnit(e.target.value as PlanRangeUnit)
+                    setPlan(null)
+                  }}
+                  className="planRangeSelect"
+                  disabled={planning}
+                >
+                  <option value="weeks">Weeks</option>
+                  <option value="months">Months</option>
+                </select>
+                <button
+                  type="button"
+                  className="primary"
+                  onClick={() => void generatePlan()}
+                  disabled={planning}
+                  style={{ whiteSpace: 'nowrap' }}
+                >
+                  {planning ? 'Generating...' : 'Generate'}
+                </button>
+              </div>
+
+              {plan && (
+                <button type="button" className="secondary" onClick={downloadPlanAsIcs}>
+                  Download .ics
+                </button>
+              )}
+            </div>
+          </div>
+        )}
 
         {plan ? (
           <div className="stack">
@@ -559,145 +557,65 @@ export function Hub() {
             <p className="muted">Accepted workouts will appear here.</p>
           ) : (
             <ul className="list">
-              {savedWorkouts.map((savedWorkout) => (
-                <li key={savedWorkout.id} className="listItem">
-                  <div className="savedWorkoutHeader">
-                    <div className="workoutMain">
-                      <div className="workoutIcon">
-                        <WorkoutIcon type={savedWorkout.option?.type} size="small" />
+              {savedWorkouts.map((savedWorkout) => {
+                const expanded = expandedSavedId === savedWorkout.id
+                return (
+                  <li key={savedWorkout.id} className="listItem">
+                    <div className="savedWorkoutHeader">
+                      <div className="workoutMain">
+                        <div className="workoutIcon">
+                          <WorkoutIcon type={savedWorkout.option?.type} size="small" />
+                        </div>
+                        <div>
+                          <div className="workoutName">
+                            {savedWorkout.option?.title ?? 'Saved workout'}
+                          </div>
+                          <div className="muted">
+                            {savedWorkout.option?.duration ?? ''} • {savedWorkout.option?.intensity ?? ''}
+                          </div>
+                        </div>
                       </div>
-                      <div>
-                        <div className="workoutName">
-                          {savedWorkout.option?.title ?? 'Saved workout'}
+                      <div className="stack" style={{ alignItems: 'flex-end', gap: 6 }}>
+                        <div className="muted" style={{ fontSize: '12px' }}>
+                          {savedWorkout.savedAt?.toDate
+                            ? savedWorkout.savedAt.toDate().toLocaleString()
+                            : 'Saved just now'}
                         </div>
-                        <div className="muted">
-                          {savedWorkout.option?.duration ?? ''} • {savedWorkout.option?.intensity ?? ''}
-                        </div>
+                        <button
+                          type="button"
+                          className="secondary"
+                          style={{ minHeight: 'auto', padding: '4px 8px', fontSize: '11px' }}
+                          onClick={() => setExpandedSavedId(expanded ? null : savedWorkout.id)}
+                        >
+                          {expanded ? 'Close' : 'View details'}
+                        </button>
                       </div>
                     </div>
-                    <div className="muted" style={{ fontSize: '12px' }}>
-                      {savedWorkout.savedAt?.toDate
-                        ? savedWorkout.savedAt.toDate().toLocaleString()
-                        : 'Saved just now'}
-                    </div>
-                  </div>
-                </li>
-              ))}
+
+                    {expanded && (
+                      <div className="stack" style={{ marginTop: 16, paddingTop: 16, borderTop: '1px solid var(--border)', gap: 12 }}>
+                        <div className="optionSection">
+                          <div className="sectionLabel">Main set</div>
+                          <div className="sectionContent">{savedWorkout.option.mainSet}</div>
+                        </div>
+                        {savedWorkout.option.why && savedWorkout.option.why.length > 0 && (
+                          <div className="optionSection">
+                            <div className="sectionLabel">Rationale</div>
+                            <ul className="whyList" style={{ marginTop: 8 }}>
+                              {savedWorkout.option.why.map((reason, i) => (
+                                <li key={i}>{reason}</li>
+                              ))}
+                            </ul>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </li>
+                )
+              })}
             </ul>
           )}
         </div>
-      </section>
-
-      <section className="card">
-        <div className="tabNav">
-          <button
-            type="button"
-            className={`tabButton ${activeTab === 'plan' ? 'active' : ''}`}
-            onClick={() => setActiveTab('plan')}
-          >
-            Overview
-          </button>
-          <button
-            type="button"
-            className={`tabButton ${activeTab === 'log' ? 'active' : ''}`}
-            onClick={() => setActiveTab('log')}
-          >
-            Log
-          </button>
-        </div>
-
-        {activeTab === 'plan' && (
-          <div className="tabContent stack">
-            <h2>Overview</h2>
-            <p className="muted">
-              Sync Strava history, add context to workouts, and track your progress.
-            </p>
-            <div className="metricGrid">
-              <div className="metric">
-                <div className="metricLabel">Recent workouts</div>
-                <div className="metricValue">{workouts.length}</div>
-              </div>
-              <div className="metric">
-                <div className="metricLabel">Context added</div>
-                <div className="metricValue">{withContext}</div>
-              </div>
-              <div className="metric">
-                <div className="metricLabel">Strava status</div>
-                <div className="metricValue">{connected ? 'Connected' : 'Pending'}</div>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {activeTab === 'log' && (
-          <div className="tabContent stack">
-            <h2>Recent workouts</h2>
-            {workouts.length === 0 ? (
-              <p className="muted">
-                No workouts yet. Connect Strava in <Link to="/onboarding">Settings</Link>, then
-                sync to import your latest activities.
-              </p>
-            ) : (
-              <ul className="list">
-                {workouts.map((workout) => {
-                  const expanded = expandedWorkoutId === workout.id
-                  const details = [formatKilometers(workout.strava?.distance), formatMinutes(workout.strava?.elapsedTime)]
-                    .filter(Boolean)
-                    .join(' • ')
-
-                  return (
-                    <li key={workout.id} className="listItem">
-                      <div className="workoutHeader">
-                        <div className="workoutMain">
-                          <div className="workoutIcon">
-                            <WorkoutIcon type={workout.strava?.type} size="small" />
-                          </div>
-                          <div>
-                            <div className="workoutName">{workout.strava?.name ?? workout.id}</div>
-                            <div className="muted">
-                              {workout.strava?.startDate
-                                ? new Date(workout.strava.startDate).toLocaleString()
-                                : ''}
-                            </div>
-                            {details ? <div className="muted">{details}</div> : null}
-                          </div>
-                        </div>
-
-                        <div className="stack" style={{ alignItems: 'flex-end', gap: 6 }}>
-                          <div
-                            className={`contextStatus ${
-                              workout.context?.text ? 'contextStatus--added' : 'contextStatus--missing'
-                            }`}
-                          >
-                            Context: {workout.context?.text ? 'Added' : 'Missing'}
-                          </div>
-                          <button
-                            type="button"
-                            className="secondary"
-                            onClick={() => setExpandedWorkoutId(expanded ? null : workout.id)}
-                          >
-                            {expanded ? 'Close' : workout.context?.text ? 'Edit context' : 'Add context'}
-                          </button>
-                        </div>
-                      </div>
-
-                      {expanded && user ? (
-                        <WorkoutContextEditor
-                          uid={user.uid}
-                          workoutId={workout.id}
-                          workoutType={workout.strava?.type ?? null}
-                          initialText={workout.context?.text ?? ''}
-                          initialTags={workout.context?.tags ?? []}
-                          initialVoiceUrl={workout.context?.voiceUrl ?? null}
-                        />
-                      ) : null}
-                    </li>
-                  )
-                })}
-              </ul>
-            )}
-          </div>
-        )}
       </section>
     </main>
   )

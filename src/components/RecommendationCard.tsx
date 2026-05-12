@@ -3,7 +3,7 @@ import type { WorkoutOption } from '../lib/types'
 import { WorkoutIcon } from './WorkoutIcon'
 
 const SWIPE_THRESHOLD = 80
-const MAX_DRAG_OFFSET = 120
+const MAX_DRAG_OFFSET = 160
 
 function clampDragOffset(offset: number): number {
   return Math.max(-MAX_DRAG_OFFSET, Math.min(MAX_DRAG_OFFSET, offset))
@@ -37,40 +37,79 @@ export function RecommendationCard({ option, index, onPass, onAccept, disabled }
   const overviewPreview = option.mainSet.trim()
   const [dragOffset, setDragOffset] = useState(0)
   const touchStartX = useRef<number | null>(null)
+  const isDragging = useRef(false)
+
+  // Calculate rotation and opacity for stamps
+  const rotation = (dragOffset / MAX_DRAG_OFFSET) * 10
+  const passOpacity = Math.min(1, Math.max(0, -dragOffset / (SWIPE_THRESHOLD * 0.8)))
+  const acceptOpacity = Math.min(1, Math.max(0, dragOffset / (SWIPE_THRESHOLD * 0.8)))
 
   const applySwipe = () => {
+    const finalOffset = dragOffset
     touchStartX.current = null
-    if (disabled) return
-    if (dragOffset <= -SWIPE_THRESHOLD && onPass) {
+    isDragging.current = false
+    
+    if (disabled) {
+      setDragOffset(0)
+      return
+    }
+
+    if (finalOffset <= -SWIPE_THRESHOLD && onPass) {
       onPass()
-    } else if (dragOffset >= SWIPE_THRESHOLD && onAccept) {
+    } else if (finalOffset >= SWIPE_THRESHOLD && onAccept) {
       onAccept()
     }
+    
     setDragOffset(0)
+  }
+
+  const handleDragStart = (clientX: number) => {
+    if (disabled) return
+    touchStartX.current = clientX
+    isDragging.current = true
+  }
+
+  const handleDragMove = (clientX: number) => {
+    if (touchStartX.current === null || !isDragging.current || disabled) return
+    setDragOffset(clampDragOffset(clientX - touchStartX.current))
   }
 
   return (
     <div
       className="workoutOption swipeCard"
       style={{
-        transform: dragOffset ? `translateX(${dragOffset}px)` : undefined,
-        transition: dragOffset ? undefined : 'transform 0.2s ease',
+        transform: dragOffset 
+          ? `translateX(${dragOffset}px) rotate(${rotation}deg)` 
+          : 'translateX(0px) rotate(0deg)',
+        transition: isDragging.current 
+          ? 'none' 
+          : 'transform 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275)',
+        cursor: isDragging.current ? 'grabbing' : (onPass || onAccept) ? 'grab' : 'default',
+        userSelect: 'none',
+        zIndex: isDragging.current ? 100 : 1,
       }}
-      onTouchStart={(e) => {
-        touchStartX.current = e.touches[0]?.clientX ?? null
-      }}
-      onTouchMove={(e) => {
-        if (touchStartX.current === null || disabled) return
-        const current = e.touches[0]?.clientX
-        if (typeof current !== 'number') return
-        setDragOffset(clampDragOffset(current - touchStartX.current))
-      }}
+      onTouchStart={(e) => handleDragStart(e.touches[0]?.clientX ?? 0)}
+      onTouchMove={(e) => handleDragMove(e.touches[0]?.clientX ?? 0)}
       onTouchEnd={applySwipe}
       onTouchCancel={() => {
         touchStartX.current = null
+        isDragging.current = false
         setDragOffset(0)
       }}
+      onMouseDown={(e) => handleDragStart(e.clientX)}
+      onMouseMove={(e) => handleDragMove(e.clientX)}
+      onMouseUp={applySwipe}
+      onMouseLeave={() => {
+        if (isDragging.current) applySwipe()
+      }}
     >
+      <div className="swipeStamp swipeStamp--pass" style={{ opacity: passOpacity }}>
+        Pass
+      </div>
+      <div className="swipeStamp swipeStamp--accept" style={{ opacity: acceptOpacity }}>
+        Like
+      </div>
+
       <div className="optionHeader">
         <div className="workoutIconWrapper">
           <WorkoutIcon type={option.type} size="medium" />

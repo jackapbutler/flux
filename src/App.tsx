@@ -6,6 +6,7 @@ import { Login } from './pages/Login'
 import { Signup } from './pages/Signup'
 import { Onboarding } from './pages/Onboarding'
 import { Hub } from './pages/Hub'
+import { Log } from './pages/Log'
 import { Protected } from './components/Protected'
 import { Shell } from './components/Shell'
 
@@ -23,6 +24,7 @@ export default function App() {
         <Route element={<Protected />}>
           <Route path="/onboarding" element={<Onboarding />} />
           <Route path="/app" element={<Hub />} />
+          <Route path="/log" element={<Log />} />
         </Route>
 
         <Route path="/" element={<Navigate to="/app" replace />} />
