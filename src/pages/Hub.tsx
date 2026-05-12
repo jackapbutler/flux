@@ -82,6 +82,7 @@ export function Hub() {
   const [expandedWorkoutId, setExpandedWorkoutId] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [status, setStatus] = useState<string | null>(null)
+  const [activeTab, setActiveTab] = useState<'plan' | 'log'>('plan')
 
   const workoutsRef = useMemo(() => {
     if (!user) return null
@@ -281,7 +282,7 @@ export function Hub() {
 
         {recommendation ? (
           <div className="stack">
-            <div className="label">Recommended workout</div>
+            <div className="label">Recommended workouts</div>
 
             {currentRecommendationOption ? (
               <>
@@ -345,73 +346,115 @@ export function Hub() {
       </section>
 
       <section className="card">
-        <div className="tabContent stack">
-          <h2>Recent workouts</h2>
-          {workouts.length === 0 ? (
-            <p className="muted">
-              No workouts yet. Connect Strava in <Link to="/onboarding">Settings</Link>, then sync
-              to import your latest activities.
-            </p>
-          ) : (
-            <ul className="list">
-              {workouts.map((workout) => {
-                const expanded = expandedWorkoutId === workout.id
-                const details = [formatKilometers(workout.strava?.distance), formatMinutes(workout.strava?.elapsedTime)]
-                  .filter(Boolean)
-                  .join(' • ')
-
-                return (
-                  <li key={workout.id} className="listItem">
-                    <div className="workoutHeader">
-                      <div className="workoutMain">
-                        <div className="workoutIcon">
-                          <WorkoutIcon type={workout.strava?.type} size="small" />
-                        </div>
-                        <div>
-                          <div className="workoutName">{workout.strava?.name ?? workout.id}</div>
-                          <div className="muted">
-                            {workout.strava?.startDate
-                              ? new Date(workout.strava.startDate).toLocaleString()
-                              : ''}
-                          </div>
-                          {details ? <div className="muted">{details}</div> : null}
-                        </div>
-                      </div>
-
-                      <div className="stack" style={{ alignItems: 'flex-end', gap: 6 }}>
-                        <div
-                          className={`contextStatus ${
-                            workout.context?.text ? 'contextStatus--added' : 'contextStatus--missing'
-                          }`}
-                        >
-                          Context: {workout.context?.text ? 'Added' : 'Missing'}
-                        </div>
-                        <button
-                          type="button"
-                          className="secondary"
-                          onClick={() => setExpandedWorkoutId(expanded ? null : workout.id)}
-                        >
-                          {expanded ? 'Close' : workout.context?.text ? 'Edit context' : 'Add context'}
-                        </button>
-                      </div>
-                    </div>
-
-                    {expanded && user ? (
-                      <WorkoutContextEditor
-                        uid={user.uid}
-                        workoutId={workout.id}
-                        workoutType={workout.strava?.type ?? null}
-                        initialText={workout.context?.text ?? ''}
-                        initialTags={workout.context?.tags ?? []}
-                        initialVoiceUrl={workout.context?.voiceUrl ?? null}
-                      />
-                    ) : null}
-                  </li>
-                )
-              })}
-            </ul>
-          )}
+        <div className="tabNav">
+          <button
+            type="button"
+            className={`tabButton ${activeTab === 'plan' ? 'active' : ''}`}
+            onClick={() => setActiveTab('plan')}
+          >
+            Overview
+          </button>
+          <button
+            type="button"
+            className={`tabButton ${activeTab === 'log' ? 'active' : ''}`}
+            onClick={() => setActiveTab('log')}
+          >
+            Log
+          </button>
         </div>
+
+        {activeTab === 'plan' && (
+          <div className="tabContent stack">
+            <h2>Overview</h2>
+            <p className="muted">
+              Sync Strava history, add context to workouts, and track your progress.
+            </p>
+            <div className="metricGrid">
+              <div className="metric">
+                <div className="metricLabel">Recent workouts</div>
+                <div className="metricValue">{workouts.length}</div>
+              </div>
+              <div className="metric">
+                <div className="metricLabel">Context added</div>
+                <div className="metricValue">{withContext}</div>
+              </div>
+              <div className="metric">
+                <div className="metricLabel">Strava status</div>
+                <div className="metricValue">{connected ? 'Connected' : 'Pending'}</div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {activeTab === 'log' && (
+          <div className="tabContent stack">
+            <h2>Recent workouts</h2>
+            {workouts.length === 0 ? (
+              <p className="muted">
+                No workouts yet. Connect Strava in <Link to="/onboarding">Settings</Link>, then
+                sync to import your latest activities.
+              </p>
+            ) : (
+              <ul className="list">
+                {workouts.map((workout) => {
+                  const expanded = expandedWorkoutId === workout.id
+                  const details = [formatKilometers(workout.strava?.distance), formatMinutes(workout.strava?.elapsedTime)]
+                    .filter(Boolean)
+                    .join(' • ')
+
+                  return (
+                    <li key={workout.id} className="listItem">
+                      <div className="workoutHeader">
+                        <div className="workoutMain">
+                          <div className="workoutIcon">
+                            <WorkoutIcon type={workout.strava?.type} size="small" />
+                          </div>
+                          <div>
+                            <div className="workoutName">{workout.strava?.name ?? workout.id}</div>
+                            <div className="muted">
+                              {workout.strava?.startDate
+                                ? new Date(workout.strava.startDate).toLocaleString()
+                                : ''}
+                            </div>
+                            {details ? <div className="muted">{details}</div> : null}
+                          </div>
+                        </div>
+
+                        <div className="stack" style={{ alignItems: 'flex-end', gap: 6 }}>
+                          <div
+                            className={`contextStatus ${
+                              workout.context?.text ? 'contextStatus--added' : 'contextStatus--missing'
+                            }`}
+                          >
+                            Context: {workout.context?.text ? 'Added' : 'Missing'}
+                          </div>
+                          <button
+                            type="button"
+                            className="secondary"
+                            onClick={() => setExpandedWorkoutId(expanded ? null : workout.id)}
+                          >
+                            {expanded ? 'Close' : workout.context?.text ? 'Edit context' : 'Add context'}
+                          </button>
+                        </div>
+                      </div>
+
+                      {expanded && user ? (
+                        <WorkoutContextEditor
+                          uid={user.uid}
+                          workoutId={workout.id}
+                          workoutType={workout.strava?.type ?? null}
+                          initialText={workout.context?.text ?? ''}
+                          initialTags={workout.context?.tags ?? []}
+                          initialVoiceUrl={workout.context?.voiceUrl ?? null}
+                        />
+                      ) : null}
+                    </li>
+                  )
+                })}
+              </ul>
+            )}
+          </div>
+        )}
       </section>
     </main>
   )

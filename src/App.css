@@ -9,9 +9,10 @@
 .header {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-start;
   gap: 20px;
   padding: 0 0 32px;
+  position: relative;
 }
 
 .header .logo {
@@ -485,10 +486,45 @@
   border: 1px solid #fecdd3;
 }
 
-.nav {
+.menuToggle {
+  width: 42px;
+  height: 42px;
+  min-width: 42px;
+  padding: 0;
+  border-radius: 12px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  color: var(--text-h);
+  font-size: 18px;
+}
+
+.menuPanel {
+  display: none;
+  position: absolute;
+  left: 0;
+  top: calc(100% - 18px);
+  min-width: 220px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 10px;
+  box-shadow: var(--shadow-lg);
+  z-index: 20;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.menuPanel.open {
   display: flex;
-  gap: 12px;
-  align-items: center;
+}
+
+.menuPanel .secondary {
+  justify-content: flex-start;
+}
+
+.menuPanel .link,
+.menuPanel .secondary {
+  width: 100%;
 }
 
 .contextTagList {
@@ -569,10 +605,9 @@
   }
 
   .header {
-    flex-direction: column;
-    align-items: stretch;
+    align-items: flex-start;
     padding-bottom: 24px;
-    gap: 16px;
+    gap: 12px;
   }
 
   .brandTagline {
@@ -610,13 +645,15 @@
     align-items: stretch;
   }
 
+  .menuPanel {
+    right: 0;
+    min-width: 0;
+    width: 100%;
+  }
+
   .savedWorkoutHeader {
     flex-direction: column;
     align-items: stretch;
-  }
-
-  .nav {
-    justify-content: space-between;
   }
 
   .authCard {
