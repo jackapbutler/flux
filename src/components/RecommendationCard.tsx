@@ -66,18 +66,8 @@ export function RecommendationCard({ option, index }: Props) {
         <summary className="optionToggle">View workout details</summary>
 
         <div className="optionSection">
-          <div className="sectionLabel">Warmup</div>
-          <div className="sectionContent">{option.warmup}</div>
-        </div>
-
-        <div className="optionSection">
           <div className="sectionLabel">Main set</div>
           <div className="sectionContent">{option.mainSet}</div>
-        </div>
-
-        <div className="optionSection">
-          <div className="sectionLabel">Cooldown</div>
-          <div className="sectionContent">{option.cooldown}</div>
         </div>
 
         <div className="optionSection">

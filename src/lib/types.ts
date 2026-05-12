@@ -40,9 +40,7 @@ export type WorkoutOption = {
   title: string
   duration: string
   intensity: string
-  warmup: string
   mainSet: string
-  cooldown: string
   why: string[]
   type?: string
 }
