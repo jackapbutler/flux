@@ -8,7 +8,7 @@ import { RecommendationChat } from '../components/RecommendationChat'
 import { WorkoutIcon } from '../components/WorkoutIcon'
 import { useAuth } from '../lib/useAuth'
 import { db, functions } from '../lib/firebase'
-import type { RecommendationResponse } from '../lib/types'
+import type { PlanRangeUnit, RecommendationResponse, TrainingPlanResponse } from '../lib/types'
 
 type WorkoutRow = {
   id: string
@@ -67,13 +67,60 @@ function formatKilometers(meters?: number | null): string {
   return `${(meters / 1000).toFixed(1)} km`
 }
 
+function escapeIcsText(value: string): string {
+  return value
+    .replace(/\\/g, '\\\\')
+    .replace(/\n/g, '\\n')
+    .replace(/,/g, '\\,')
+    .replace(/;/g, '\\;')
+}
+
+function parseDurationMinutes(value: string): number {
+  const lower = value.toLowerCase()
+  const hours = lower.match(/(\d+)\s*(h|hr|hrs|hour|hours)/)
+  const minutes = lower.match(/(\d+)\s*(m|min|mins|minute|minutes)/)
+  const hourMinutes = hours ? Number(hours[1]) * 60 : 0
+  const minuteMinutes = minutes ? Number(minutes[1]) : 0
+  const total = hourMinutes + minuteMinutes
+  if (total > 0) return total
+  const firstNumber = lower.match(/(\d+)/)
+  return firstNumber ? Math.max(15, Number(firstNumber[1])) : 60
+}
+
+function toIcsUtcDateTime(date: string, hour: number, minute: number): string {
+  const at = new Date(`${date}T${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}:00Z`)
+  if (Number.isNaN(at.getTime())) return ''
+  const y = at.getUTCFullYear()
+  const mo = String(at.getUTCMonth() + 1).padStart(2, '0')
+  const d = String(at.getUTCDate()).padStart(2, '0')
+  const h = String(at.getUTCHours()).padStart(2, '0')
+  const mi = String(at.getUTCMinutes()).padStart(2, '0')
+  const s = String(at.getUTCSeconds()).padStart(2, '0')
+  return `${y}${mo}${d}T${h}${mi}${s}Z`
+}
+
+function formatPlanDate(date: string): string {
+  const parsed = new Date(`${date}T00:00:00Z`)
+  if (Number.isNaN(parsed.getTime())) return date
+  return parsed.toLocaleDateString(undefined, {
+    weekday: 'short',
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+  })
+}
+
 export function Hub() {
   const nav = useNavigate()
   const { user, profile } = useAuth()
   const [workouts, setWorkouts] = useState<WorkoutRow[]>([])
   const [syncing, setSyncing] = useState(false)
   const [recommending, setRecommending] = useState(false)
+  const [planning, setPlanning] = useState(false)
   const [recommendation, setRecommendation] = useState<RecommendationResponse | null>(null)
+  const [plan, setPlan] = useState<TrainingPlanResponse | null>(null)
+  const [planRangeValue, setPlanRangeValue] = useState(4)
+  const [planRangeUnit, setPlanRangeUnit] = useState<PlanRangeUnit>('weeks')
   const [expandedWorkoutId, setExpandedWorkoutId] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [status, setStatus] = useState<string | null>(null)
@@ -149,6 +196,96 @@ export function Hub() {
     return res.data
   }
 
+  const generatePlan = async () => {
+    try {
+      setError(null)
+      setStatus(null)
+      setPlanning(true)
+      const fn = httpsCallable<
+        { rangeValue: number; rangeUnit: PlanRangeUnit },
+        TrainingPlanResponse
+      >(functions, 'generateTrainingPlan')
+      const res = await fn({ rangeValue: planRangeValue, rangeUnit: planRangeUnit })
+      setPlan(res.data)
+      setStatus(`Generated ${res.data.sessions.length} planned sessions`)
+    } catch (e) {
+      setError(errorMessage(e))
+    } finally {
+      setPlanning(false)
+    }
+  }
+
+  const downloadPlanAsIcs = () => {
+    if (!plan || plan.sessions.length === 0) return
+
+    const nowStamp = new Date().toISOString().replace(/[-:]/g, '').replace(/\.\d{3}Z$/, 'Z')
+    const dayOffsets = new Map<string, number>()
+
+    const events = plan.sessions
+      .map((session, idx) => {
+        const existing = dayOffsets.get(session.date) ?? 0
+        dayOffsets.set(session.date, existing + 1)
+        const startHour = 7 + existing * 2
+        const start = toIcsUtcDateTime(session.date, startHour, 0)
+        if (!start) return null
+        const durationMinutes = parseDurationMinutes(session.duration)
+        const endDate = new Date(`${session.date}T${String(startHour).padStart(2, '0')}:00:00Z`)
+        endDate.setUTCMinutes(endDate.getUTCMinutes() + durationMinutes)
+        const end = toIcsUtcDateTime(
+          endDate.toISOString().slice(0, 10),
+          endDate.getUTCHours(),
+          endDate.getUTCMinutes(),
+        )
+        if (!end) return null
+        const summary = escapeIcsText(session.title)
+        const description = escapeIcsText(
+          [
+            `Type: ${session.type || 'workout'}`,
+            `Duration: ${session.duration}`,
+            `Intensity: ${session.intensity}`,
+            `Main set: ${session.mainSet}`,
+            session.notes ? `Notes: ${session.notes}` : '',
+          ]
+            .filter(Boolean)
+            .join('\n'),
+        )
+        return [
+          'BEGIN:VEVENT',
+          `UID:flux-${session.date}-${idx}@flux.app`,
+          `DTSTAMP:${nowStamp}`,
+          `DTSTART:${start}`,
+          `DTEND:${end}`,
+          `SUMMARY:${summary}`,
+          `DESCRIPTION:${description}`,
+          'END:VEVENT',
+        ].join('\r\n')
+      })
+      .filter(Boolean)
+      .join('\r\n')
+
+    if (!events) return
+
+    const ics = [
+      'BEGIN:VCALENDAR',
+      'VERSION:2.0',
+      'PRODID:-//Flux//Training Plan//EN',
+      'CALSCALE:GREGORIAN',
+      events,
+      'END:VCALENDAR',
+      '',
+    ].join('\r\n')
+
+    const blob = new Blob([ics], { type: 'text/calendar;charset=utf-8' })
+    const href = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = href
+    a.download = `flux-plan-${plan.range.startDateUtc}-to-${plan.range.endDateUtc}.ics`
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
+    URL.revokeObjectURL(href)
+  }
+
   return (
     <main className="stack">
       <section className="card hero">
@@ -200,6 +337,43 @@ export function Hub() {
           )}
         </div>
 
+        {workouts.length > 0 && (
+          <div className="row planRangeControls">
+            <span className="muted">Plan range</span>
+            <input
+              type="number"
+              min={1}
+              max={planRangeUnit === 'weeks' ? 24 : 12}
+              value={planRangeValue}
+              onChange={(e) => {
+                const next = Number(e.target.value)
+                setPlanRangeValue(Number.isFinite(next) && next > 0 ? Math.floor(next) : 1)
+                setPlan(null)
+              }}
+              className="planRangeInput"
+              disabled={planning}
+            />
+            <select
+              value={planRangeUnit}
+              onChange={(e) => {
+                setPlanRangeUnit(e.target.value as PlanRangeUnit)
+                setPlan(null)
+              }}
+              className="planRangeSelect"
+              disabled={planning}
+            >
+              <option value="weeks">Weeks</option>
+              <option value="months">Months</option>
+            </select>
+            <button type="button" className="primary" onClick={() => void generatePlan()} disabled={planning}>
+              {planning ? 'Generating plan...' : 'Generate plan'}
+            </button>
+            <button type="button" className="secondary" onClick={downloadPlanAsIcs} disabled={!plan}>
+              Download gcal items (.ics)
+            </button>
+          </div>
+        )}
+
         {workouts.length === 0 && connected && !syncing && (
           <p className="muted" style={{ fontSize: '13px' }}>
             Sync your Strava history to give Flux context for your recommendations.
@@ -222,6 +396,59 @@ export function Hub() {
               onUpdate={setRecommendation}
               disabled={false}
             />
+          </div>
+        ) : null}
+
+        {plan ? (
+          <div className="stack">
+            <div className="label">Long-range plan</div>
+            <p className="muted">
+              {plan.range.value} {plan.range.unit} • {plan.range.startDateUtc} to {plan.range.endDateUtc}
+            </p>
+            {plan.safetyChecks.length > 0 ? (
+              <ul className="whyList">
+                {plan.safetyChecks.map((check, idx) => (
+                  <li key={idx}>{check}</li>
+                ))}
+              </ul>
+            ) : null}
+            <ul className="planList">
+              {plan.sessions.map((session, idx) => (
+                <li key={`${session.date}-${idx}`} className="listItem">
+                  <div className="workoutHeader">
+                    <div className="workoutMain">
+                      <div className="workoutIcon">
+                        <WorkoutIcon type={session.type} size="small" />
+                      </div>
+                      <div>
+                        <div className="workoutName">{session.title}</div>
+                        <div className="muted">{formatPlanDate(session.date)}</div>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="optionMetrics" style={{ marginTop: 12 }}>
+                    <div className="metricSmall">
+                      <span className="optionMetricLabel">Duration</span>
+                      <span className="optionMetricValue">{session.duration}</span>
+                    </div>
+                    <div className="metricSmall">
+                      <span className="optionMetricLabel">Intensity</span>
+                      <span className="optionMetricValue">{session.intensity}</span>
+                    </div>
+                  </div>
+                  <div className="optionSection" style={{ marginTop: 12 }}>
+                    <div className="sectionLabel">Main set</div>
+                    <div className="sectionContent">{session.mainSet}</div>
+                  </div>
+                  {session.notes ? (
+                    <div className="optionSection" style={{ marginTop: 12 }}>
+                      <div className="sectionLabel">Notes</div>
+                      <div className="sectionContent">{session.notes}</div>
+                    </div>
+                  ) : null}
+                </li>
+              ))}
+            </ul>
           </div>
         ) : null}
       </section>

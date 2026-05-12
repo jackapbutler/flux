@@ -177,7 +177,7 @@ button:disabled {
   margin-left: 4px;
 }
 
-input, textarea {
+input, textarea, select {
   font-family: var(--sans);
   font-size: 14px;
   padding: 12px 16px;
@@ -188,7 +188,7 @@ input, textarea {
   transition: all 0.2s ease;
 }
 
-input:focus, textarea:focus {
+input:focus, textarea:focus, select:focus {
   outline: none;
   border-color: var(--accent);
   background: var(--surface);

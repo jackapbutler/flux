@@ -407,6 +407,24 @@
   box-shadow: var(--shadow);
 }
 
+.planRangeControls {
+  align-items: flex-end;
+}
+
+.planRangeInput {
+  width: 92px;
+}
+
+.planRangeSelect {
+  min-width: 120px;
+}
+
+.planList {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
 /* List Items */
 .listItem {
   background: var(--surface);

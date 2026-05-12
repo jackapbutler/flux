@@ -48,3 +48,26 @@ export type WorkoutOption = {
 export type RecommendationResponse = {
   options: WorkoutOption[]
 }
+
+export type PlanRangeUnit = 'weeks' | 'months'
+
+export type PlannedSession = {
+  date: string
+  title: string
+  duration: string
+  intensity: string
+  mainSet: string
+  type?: string
+  notes?: string
+}
+
+export type TrainingPlanResponse = {
+  range: {
+    value: number
+    unit: PlanRangeUnit
+    startDateUtc: string
+    endDateUtc: string
+  }
+  sessions: PlannedSession[]
+  safetyChecks: string[]
+}
