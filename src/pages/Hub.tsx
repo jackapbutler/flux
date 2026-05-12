@@ -8,7 +8,7 @@ import { RecommendationChat } from '../components/RecommendationChat'
 import { WorkoutIcon } from '../components/WorkoutIcon'
 import { useAuth } from '../lib/useAuth'
 import { db, functions } from '../lib/firebase'
-import type { RecommendationResponse } from '../lib/types'
+import type { RecommendationResponse, SavedWorkout, WorkoutOption } from '../lib/types'
 
 type WorkoutRow = {
   id: string
@@ -21,6 +21,8 @@ type WorkoutRow = {
   }
   context?: { text?: string | null; tags?: string[] | null; voiceUrl?: string | null; updatedAt?: Timestamp | null }
 }
+
+type SavedWorkoutRow = SavedWorkout
 
 type MaybeFirebaseError = { code?: string; message?: string; details?: unknown }
 
@@ -73,7 +75,10 @@ export function Hub() {
   const [workouts, setWorkouts] = useState<WorkoutRow[]>([])
   const [syncing, setSyncing] = useState(false)
   const [recommending, setRecommending] = useState(false)
+  const [respondingToRecommendation, setRespondingToRecommendation] = useState(false)
   const [recommendation, setRecommendation] = useState<RecommendationResponse | null>(null)
+  const [currentOptionIndex, setCurrentOptionIndex] = useState(0)
+  const [savedWorkouts, setSavedWorkouts] = useState<SavedWorkoutRow[]>([])
   const [expandedWorkoutId, setExpandedWorkoutId] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [status, setStatus] = useState<string | null>(null)
@@ -82,6 +87,11 @@ export function Hub() {
   const workoutsRef = useMemo(() => {
     if (!user) return null
     return collection(db, 'users', user.uid, 'workouts')
+  }, [user])
+
+  const savedWorkoutsRef = useMemo(() => {
+    if (!user) return null
+    return collection(db, 'users', user.uid, 'savedWorkouts')
   }, [user])
 
   useEffect(() => {
@@ -93,6 +103,16 @@ export function Hub() {
       )
     })
   }, [workoutsRef])
+
+  useEffect(() => {
+    if (!savedWorkoutsRef) return
+    const q = query(savedWorkoutsRef, orderBy('savedAt', 'desc'), limit(10))
+    return onSnapshot(q, (snap) => {
+      setSavedWorkouts(
+        snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<SavedWorkoutRow, 'id'>) })),
+      )
+    })
+  }, [savedWorkoutsRef])
 
   const connected = Boolean(profile?.strava?.connected)
   const withContext = workouts.filter((w) => Boolean(w.context?.text)).length
@@ -127,6 +147,7 @@ export function Hub() {
       const fn = httpsCallable<undefined, RecommendationResponse>(functions, 'recommendNextWorkout')
       const res = await fn()
       setRecommendation(res.data)
+      setCurrentOptionIndex(0)
     } catch (e) {
       setError(errorMessage(e))
     } finally {
@@ -149,13 +170,55 @@ export function Hub() {
     return res.data
   }
 
+  const respondToRecommendation = async (decision: 'pass' | 'accept') => {
+    if (!recommendation) return
+    const option = recommendation.options[currentOptionIndex]
+    if (!option) return
+
+    try {
+      setError(null)
+      setStatus(null)
+      setRespondingToRecommendation(true)
+
+      const fn = httpsCallable<
+        { decision: 'pass' | 'accept'; option: WorkoutOption },
+        { saved: boolean; preferenceSummary: string }
+      >(functions, 'respondToWorkoutRecommendation')
+
+      const res = await fn({ decision, option })
+      const remainingCount = recommendation.options.length - (currentOptionIndex + 1)
+
+      if (decision === 'accept') {
+        setRecommendation(null)
+        setCurrentOptionIndex(0)
+        setStatus('Workout accepted and saved. Flux persona updated with your preference.')
+      } else if (remainingCount > 0) {
+        setCurrentOptionIndex((prev) => prev + 1)
+        setStatus('Passed. Showing another option and updating your preference profile.')
+      } else {
+        setRecommendation(null)
+        setCurrentOptionIndex(0)
+        setStatus('Passed. No more options left in this set. Generate a new recommendation anytime.')
+      }
+
+      if (!res.data.saved && decision === 'accept') {
+        setStatus('Workout accepted. Saved workout list will update shortly.')
+      }
+    } catch (e) {
+      setError(errorMessage(e))
+    } finally {
+      setRespondingToRecommendation(false)
+    }
+  }
+
+  const currentRecommendationOption = recommendation?.options[currentOptionIndex] ?? null
+
   return (
     <main className="stack">
       <section className="card hero">
-        <h2>Your training hub</h2>
+        <h2>Hub</h2>
         <p className="muted">
-          Sync Strava history, add short verbal or text context, and get a recommended next
-          session based on your goals and recent load.
+          Ready to train smarter? Sync Strava, add quick context, and unlock your next workout.
         </p>
         <div className="metricGrid">
           <div className="metric">
@@ -175,7 +238,15 @@ export function Hub() {
 
       <section className="card stack">
         <h2>Plan next workout</h2>
-        <p className="muted">Goal: {profile?.goalText ? `"${profile.goalText}"` : 'Not set yet'}</p>
+        <p className="muted">
+          Goal & preferences: {profile?.goalText ? `"${profile.goalText}"` : 'Not set yet'}
+        </p>
+        <p className="muted">
+          Environment constraints:{' '}
+          {profile?.workoutEnvironmentConstraintsText
+            ? `"${profile.workoutEnvironmentConstraintsText}"`
+            : 'Not set yet'}
+        </p>
 
         <div className="row">
           {!connected ? (
@@ -195,7 +266,7 @@ export function Hub() {
               onClick={() => void recommend()}
               disabled={recommending}
             >
-              {recommending ? 'Generating...' : 'Recommend next workout'}
+              {recommending ? 'Generating...' : 'Next workout'}
             </button>
           )}
         </div>
@@ -213,17 +284,65 @@ export function Hub() {
           <div className="stack">
             <div className="label">Recommended workouts</div>
 
-            {recommendation.options.map((option, idx) => (
-              <RecommendationCard key={idx} option={option} index={idx} />
-            ))}
+            {currentRecommendationOption ? (
+              <>
+                <p className="muted" style={{ fontSize: '12px' }}>
+                  Option {currentOptionIndex + 1} of {recommendation.options.length}
+                </p>
+                <RecommendationCard
+                  option={currentRecommendationOption}
+                  index={currentOptionIndex}
+                  onPass={() => void respondToRecommendation('pass')}
+                  onAccept={() => void respondToRecommendation('accept')}
+                  disabled={respondingToRecommendation}
+                />
+              </>
+            ) : null}
 
             <RecommendationChat
               onRefine={refineRecommendation}
-              onUpdate={setRecommendation}
-              disabled={false}
+              onUpdate={(next) => {
+                setRecommendation(next)
+                setCurrentOptionIndex(0)
+              }}
+              disabled={respondingToRecommendation}
             />
           </div>
         ) : null}
+
+        <div className="stack">
+          <div className="label">Saved workouts</div>
+          {savedWorkouts.length === 0 ? (
+            <p className="muted">Accepted workouts will appear here.</p>
+          ) : (
+            <ul className="list">
+              {savedWorkouts.map((savedWorkout) => (
+                <li key={savedWorkout.id} className="listItem">
+                  <div className="savedWorkoutHeader">
+                    <div className="workoutMain">
+                      <div className="workoutIcon">
+                        <WorkoutIcon type={savedWorkout.option?.type} size="small" />
+                      </div>
+                      <div>
+                        <div className="workoutName">
+                          {savedWorkout.option?.title ?? 'Saved workout'}
+                        </div>
+                        <div className="muted">
+                          {savedWorkout.option?.duration ?? ''} • {savedWorkout.option?.intensity ?? ''}
+                        </div>
+                      </div>
+                    </div>
+                    <div className="muted" style={{ fontSize: '12px' }}>
+                      {savedWorkout.savedAt?.toDate
+                        ? savedWorkout.savedAt.toDate().toLocaleString()
+                        : 'Saved just now'}
+                    </div>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
       </section>
 
       <section className="card">
@@ -269,7 +388,7 @@ export function Hub() {
 
         {activeTab === 'log' && (
           <div className="tabContent stack">
-            <h2>Log</h2>
+            <h2>Recent workouts</h2>
             {workouts.length === 0 ? (
               <p className="muted">
                 No workouts yet. Connect Strava in <Link to="/onboarding">Settings</Link>, then

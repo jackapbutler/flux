@@ -41,8 +41,11 @@ export function Onboarding() {
   const [params] = useSearchParams()
   const { user, profile } = useAuth()
   const [goalDraft, setGoalDraft] = useState<string | null>(null)
+  const [environmentDraft, setEnvironmentDraft] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
-  const goalText = goalDraft ?? profile?.goalText ?? ''
+  const goalPreferencesText = goalDraft ?? profile?.goalText ?? ''
+  const workoutEnvironmentConstraintsText =
+    environmentDraft ?? profile?.workoutEnvironmentConstraintsText ?? ''
   const [goalSaved, setGoalSaved] = useState<string | null>(null)
   const [syncing, setSyncing] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -69,21 +72,27 @@ export function Onboarding() {
 
   const saveGoal = async () => {
     if (!userRef) {
-      setError('You need to be signed in to save your goal.')
+      setError('You need to be signed in to save your goal and preferences.')
       return
     }
     try {
       setError(null)
       setGoalSaved(null)
       setSaving(true)
-      const trimmedGoal = goalText.trim()
+      const trimmedGoalPreferences = goalPreferencesText.trim()
+      const trimmedEnvironmentConstraints = workoutEnvironmentConstraintsText.trim()
       await setDoc(
         userRef,
-        { goalText: trimmedGoal, updatedAt: serverTimestamp() },
+        {
+          goalText: trimmedGoalPreferences,
+          workoutEnvironmentConstraintsText: trimmedEnvironmentConstraints,
+          updatedAt: serverTimestamp(),
+        },
         { merge: true },
       )
       setGoalDraft(null)
-      setGoalSaved('Goal saved')
+      setEnvironmentDraft(null)
+      setGoalSaved('Goal and preferences saved')
     } catch (e) {
       setError(errorMessage(e))
     } finally {
@@ -146,18 +155,26 @@ export function Onboarding() {
       <section className="grid">
         <div className="card stack">
           <div className="label">Step 1</div>
-          <h2>Define your goal</h2>
+          <h2>Define your goals and preferences</h2>
           <p className="muted">
-            Keep it simple and specific. Flux uses this with your workout history to shape
-            recommendations.
+            Share your goal, preferences, and environment constraints. Flux uses this with your
+            workout history to shape recommendations.
           </p>
 
           <label className="field">
-            <span>Fitness goal</span>
+            <span>Goal and preferences</span>
             <input
-              value={goalText}
+              value={goalPreferencesText}
               onChange={(e) => setGoalDraft(e.target.value)}
-              placeholder="Build endurance, keep strength, train 4 days per week"
+              placeholder="Build endurance, keep strength, train 4 days per week, low-impact preferred"
+            />
+          </label>
+          <label className="field">
+            <span>Workout environment constraints</span>
+            <input
+              value={workoutEnvironmentConstraintsText}
+              onChange={(e) => setEnvironmentDraft(e.target.value)}
+              placeholder="No gym, dumbbells and bike at home, weekday sessions are short"
             />
           </label>
 
@@ -168,7 +185,7 @@ export function Onboarding() {
               onClick={() => void saveGoal()}
               disabled={saving}
             >
-              {saving ? 'Saving...' : 'Save goal'}
+              {saving ? 'Saving...' : 'Save preferences'}
             </button>
           </div>
           {goalSaved ? <p className="muted">{goalSaved}</p> : null}
