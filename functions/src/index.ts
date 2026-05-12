@@ -4,8 +4,6 @@ import { GoogleGenerativeAI } from '@google/generative-ai'
 import { initializeApp } from 'firebase-admin/app'
 import { getFirestore, FieldValue } from 'firebase-admin/firestore'
 import crypto from 'node:crypto'
-import * as fs from 'node:fs'
-import * as path from 'node:path'
 
 initializeApp()
 
@@ -14,9 +12,7 @@ export type WorkoutOption = {
   title: string
   duration: string
   intensity: string
-  warmup: string
   mainSet: string
-  cooldown: string
   why: string[]
   type?: string
 }
@@ -35,13 +31,39 @@ const stravaClientSecret = defineSecret('STRAVA_CLIENT_SECRET')
 const stravaStateSecret = defineSecret('STRAVA_STATE_SECRET')
 const appBaseUrl = defineString('APP_BASE_URL', { default: '' })
 
-function readGuidanceText(): string {
-  try {
-    const p = path.resolve(__dirname, '..', 'workout_guidance.txt')
-    return fs.readFileSync(p, 'utf8')
-  } catch {
-    return ''
-  }
+function formatDateContext(ctx: { nowIsoUtc: string; dateUtc: string; dayOfWeekUtc: string }): string {
+  return `Today is ${ctx.dayOfWeekUtc}, ${ctx.dateUtc} (UTC).`
+}
+
+function formatWorkoutsAsText(workouts: RecommendationWorkoutContext[]): string {
+  if (workouts.length === 0) return '(no recent workouts)'
+  return workouts
+    .map((w, i) => {
+      const label = w.sportType || w.type || 'Workout'
+      const name = w.name ? ` "${w.name}"` : ''
+      const when =
+        w.workoutDateUtc && w.dayOfWeekUtc && w.daysAgo !== null
+          ? ` — ${w.dayOfWeekUtc} ${w.workoutDateUtc} (${w.daysAgo === 0 ? 'today' : `${w.daysAgo}d ago`})`
+          : ''
+      const parts: string[] = []
+      if (w.distance !== null) parts.push(`${(w.distance / 1000).toFixed(1)}km`)
+      if (w.elapsedTime !== null) parts.push(`${Math.round(w.elapsedTime / 60)}min`)
+      if (w.elevationGain !== null) parts.push(`+${w.elevationGain}m elev`)
+      if (w.avgHR !== null) {
+        const hrStr = w.maxHR !== null ? `HR ${w.avgHR}/${w.maxHR} avg/max` : `HR avg ${w.avgHR}`
+        parts.push(hrStr)
+      }
+      if (w.avgPower !== null) parts.push(`Power avg ${w.avgPower}W`)
+      if (w.weightedAvgPower !== null) parts.push(`NP ${w.weightedAvgPower}W`)
+      if (w.calories !== null) parts.push(`${w.calories}kcal`)
+      if (w.sufferScore !== null) parts.push(`suffer ${w.sufferScore}`)
+      if (w.trainer) parts.push('indoor')
+      const metrics = parts.length ? `\n   ${parts.join(' | ')}` : ''
+      const tags = w.contextTags && w.contextTags.length ? ` [${w.contextTags.join(', ')}]` : ''
+      const notes = w.contextText ? `\n   Notes: "${w.contextText}"${tags}` : ''
+      return `${i + 1}. ${label}${name}${when}${metrics}${notes}`
+    })
+    .join('\n')
 }
 
 function requireGeminiKey(): string {
@@ -673,66 +695,43 @@ export const recommendNextWorkout = onCall(
 
     const { currentDateContext, workouts, contextCount } = await getRecentRecommendationContext(uid)
 
-    const guidance = readGuidanceText()
     const apiKey = requireGeminiKey()
 
     const prompt =
-      `You are Flux, a evidence-based personal trainer providing professional guidance.\n` +
-      `Core principles: progressive overload, periodization, autoregulation (RPE), fatigue management, recovery prioritization.\n\n` +
+      `You are Flux, an evidence-based personal trainer. Be calm, modern, and concise — no hype.\n\n` +
       `TRAINING PRINCIPLES:\n` +
-      `- Use RPE (Rate of Perceived Exertion 1-10) to guide intensity; target 1-3 RIR (reps in reserve)\n` +
-      `- Apply progressive overload: increase load, volume (sets x reps), or complexity systematically\n` +
-      `- Periodization: vary intensity/volume weekly to prevent plateaus and manage fatigue\n` +
-      `- Autoregulation: adjust based on daily readiness and recent load patterns\n` +
-      `- Fatigue management: monitor recent load (duration, intensity, frequency). After heavy/long sessions, reduce next load\n` +
-      `- Recovery: prioritize sleep, nutrition (1.6-2.2g protein/kg), structured rest days, and periodic deloads (~5-6 weeks)\n` +
-      `- Safety first: avoid overprescribing intensity when fatigue signals detected; use proper form over heavy weight\n\n` +
-      `- Keep recommendation copy concise for mobile readability:\n` +
-      `  - title <= 6 words\n` +
-      `  - duration/intensity <= 10 words each\n` +
-      `  - warmup/mainSet/cooldown <= 22 words each\n` +
-      `  - each "why" bullet <= 14 words\n\n` +
-      `WORKOUT_GUIDANCE.TXT:\n${guidance || '(missing guidance)'}\n\n` +
-      `Goal:\n${goalText || '(not set)'}\n\n` +
-      `LONG-TERM FITNESS PERSONA:\n${persona || '(not built yet)'}\n\n` +
-      `CURRENT DATE CONTEXT (UTC):\n${JSON.stringify(currentDateContext, null, 2)}\n\n` +
-      `IMMEDIATE CONTEXT (Last 10 Workouts):\n` +
-      `Context coverage: ${contextCount}/${workouts.length} workouts include user notes (count may be below 10 for new users).\n` +
-      `Recent workouts (JSON):\n${JSON.stringify(workouts, null, 2)}\n\n` +
-      `RECOMMENDATION STRATEGY:\n` +
-      `1. Assess recent load: sum duration/intensity of last 3-5 workouts\n` +
-      `2. Check for fatigue signals: user notes mentioning soreness, fatigue, or reduced energy\n` +
-      `3. Apply periodization: if recent intensity high, recommend moderate/recovery; if recent load light, recommend challenging session\n` +
-      `4. Use current date and workout date fields (startDate ISO timestamp, workoutDateUtc date-only, plus dayOfWeekUtc/daysAgo) to reason about recency and recovery windows\n` +
-      `5. Use RPE guidance: specify intensity as "RPE X/10" (easier sessions RPE 5-6, moderate 6-7, challenging 7-8+)\n` +
-      `6. Include warm-up/cool-down appropriate to intensity\n` +
-      `7. Provide reasoning: why this workout now (progressive vs recovery, modality, energy system)\n` +
-      `8. Safety emphasis: highlight any cautions based on recent history (e.g., "reduce intensity if soreness high")\n` +
-      `9. Set workout type: choose from "run", "ride", "swim", or other appropriate activity\n` +
-      `10. NO SCHEDULING: Do not mention specific days (e.g., "tomorrow"), times of day, or make assumptions about the user's availability. Focus only on the workout recommendation itself.\n` +
-      `11. VOLUME & INTENSITY: Analyze historical data by modality (runs vs rides vs swims vs weights) to anchor recommendations:\n` +
-      `   - If user has logged multiple runs: check avg duration, typical effort patterns, recovery needs between runs\n` +
-      `   - If user has logged multiple swims: infer pool/open water preference, stroke preferences, typical distances\n` +
-      `   - If user has logged strength: identify primary lifts, typical session duration, volume/intensity patterns\n` +
-      `   - Use past workout durations as anchors for volume (e.g., "last 5K run was 28min, recommend volume based on this")\n` +
-      `   - Suggest volume/intensity that fits their historical patterns AND progressive overload (e.g., +5-10% if appropriate)\n\n` +
-      `Return ONLY valid JSON (no markdown, no extra text) matching this schema:\n` +
+      `- Safety first: prioritise injury prevention, sleep, and consistency\n` +
+      `- RPE (1-10): easy 5-6, moderate 6-7, challenging 7-8+; target 1-3 RIR for strength\n` +
+      `- Use Heart Rate zones and Power (where available) alongside RPE\n` +
+      `- Progressive overload: increase load, volume, or complexity systematically (+5-10% when appropriate)\n` +
+      `- Polarised training (80/20 easy/hard); avoid jumps >10% in volume or intensity week-to-week\n` +
+      `- Periodization & autoregulation: vary intensity/volume weekly; adjust to daily readiness and recent load\n` +
+      `- Fatigue management: after heavy/long sessions reduce next load; watch for soreness, poor sleep, low energy\n` +
+      `- Recovery: structured rest, sleep, nutrition (1.6-2.2g protein/kg), periodic deloads (~every 5-6 weeks)\n` +
+      `- Volume anchoring: use past workout durations/distances as baseline; respect historical modality patterns\n` +
+      `- No scheduling: do not reference specific days (e.g. "tomorrow") or times of day\n` +
+      `- Explain the "why" briefly in 1-2 short bullets; recommend 1-3 options picking the best default from recent load\n` +
+      `- Concise copy for mobile: title ≤6 words, duration/intensity ≤10 words, mainSet ≤22 words, each why ≤14 words\n\n` +
+      `GOAL:\n${goalText || '(not set)'}\n\n` +
+      `FITNESS PERSONA:\n${persona || '(not built yet)'}\n\n` +
+      `DATE: ${formatDateContext(currentDateContext)}\n\n` +
+      `RECENT WORKOUTS (last ${workouts.length}, ${contextCount} with notes):\n` +
+      `${formatWorkoutsAsText(workouts)}\n\n` +
+      `Return ONLY valid JSON (no markdown) matching this schema:\n` +
       `{\n` +
       `  "options": [\n` +
       `    {\n` +
-      `      "title": "Clear, energizing title",\n` +
+      `      "title": "Short energizing title",\n` +
       `      "type": "run",\n` +
       `      "duration": "45 minutes",\n` +
-      `      "intensity": "RPE 6-7 (Moderate) - sustainable effort",\n` +
-      `      "warmup": "10 min easy jogging + dynamic stretches",\n` +
-      `      "mainSet": "4x2min at 85% max pace with 90sec jog recovery (RPE 7)",\n` +
-      `      "cooldown": "5 min easy walk + 2 min static stretching",\n` +
-      `      "why": ["Builds aerobic capacity without excessive fatigue", "Allows recovery if recent volume was high"]\n` +
+      `      "intensity": "RPE 6-7 (Moderate)",\n` +
+      `      "mainSet": "4x2min at 85% max pace, 90sec jog recovery",\n` +
+      `      "why": ["Builds aerobic base without excessive fatigue", "Volume matches recent training load"]\n` +
       `    }\n` +
       `  ],\n` +
-      `  "safetyChecks": ["Reduce intensity by 1 RPE level if feeling fatigued", "Monitor heart rate; end if HR doesn't drop post-effort"]\n` +
+      `  "safetyChecks": ["Reduce RPE by 1 if feeling fatigued", "Stop if HR stays elevated after effort"]\n` +
       `}\n\n` +
-      `Generate 1-3 workout options balancing progressive overload and recovery. Include workout type. Safety checks must be specific to their recent history.`
+      `Generate 1-3 options balancing progressive overload and recovery. Safety checks must reflect the user's recent history.`
 
     const genAI = new GoogleGenerativeAI(apiKey)
     const model = genAI.getGenerativeModel({ model: 'gemini-3.1-flash-lite' })
@@ -814,52 +813,45 @@ export const refineRecommendation = onCall({ secrets: [geminiApiKey] }, async (r
       .join('\n')
 
     const prompt =
-      `You are Flux, a professional personal trainer refining recommendations based on user feedback.\n` +
-      `Apply evidence-based principles: progressive overload, periodization, RPE-based autoregulation, fatigue management.\n\n` +
-      `KEY GUIDANCE:\n` +
-      `- RPE scale: 1-3 (very easy), 4-5 (easy), 6-7 (moderate), 8-9 (hard), 10 (max effort)\n` +
-      `- Time constraints: if user says "30 min", focus quality over volume; respect their availability\n` +
-      `- Equipment: adapt exercises to available tools (no equipment, dumbbells, gym, outdoor)\n` +
-      `- Fatigue signals: if user mentions soreness/tiredness, suggest active recovery or reduced intensity\n` +
-      `- Progressive: if user wants harder, increase load/volume/intensity; if easier, reduce RPE by 1-2 levels\n` +
-      `- Recovery: emphasize sleep, nutrition, form over ego-lifting\n` +
-      `- NO SCHEDULING: Do not mention specific days (e.g., "tomorrow"), times of day, or make assumptions about the user's availability.\n` +
-      `- Volume & Intensity patterns: reference historical workout durations and modality-specific patterns to anchor recommendations\n` +
-      `  (e.g., if they typically run 30-40min, suggest volume within that range unless they explicitly ask differently)\n` +
-      `- Use current date context and workout recency fields (startDate/workoutDateUtc/dayOfWeekUtc/daysAgo) to avoid loading too hard too soon\n` +
-      `- ENCOURAGE CONTEXT: If you lack specific data to make a great recommendation (e.g., you don't know if a "Gym" session was upper or lower body), proactively ask the user to "Add context" to that specific workout in their history. Explain that this helps you provide better-targeted sessions.\n\n` +
-      `- Keep recommendation copy concise for mobile readability:\n` +
-      `  - title <= 6 words\n` +
-      `  - duration/intensity <= 10 words each\n` +
-      `  - warmup/mainSet/cooldown <= 22 words each\n` +
-      `  - each "why" bullet <= 14 words\n\n` +
-      `Goal:\n${goalText || '(not set)'}\n\n` +
-      `LONG-TERM FITNESS PERSONA:\n${persona || '(not built yet)'}\n\n` +
-      `CURRENT DATE CONTEXT (UTC):\n${JSON.stringify(currentDateContext, null, 2)}\n\n` +
-      `IMMEDIATE CONTEXT (Last 10 Workouts):\n` +
-      `Context coverage: ${contextCount}/${workouts.length} workouts include user notes (count may be below 10 for new users).\n` +
-      `Recent workouts (JSON):\n${JSON.stringify(workouts, null, 2)}\n\n` +
+      `You are Flux, an evidence-based personal trainer refining a recommendation based on user feedback. Be calm, modern, and concise — no hype.\n\n` +
+      `TRAINING PRINCIPLES:\n` +
+      `- Safety first: prioritise injury prevention, sleep, and consistency\n` +
+      `- RPE (1-10): easy 5-6, moderate 6-7, challenging 7-8+; target 1-3 RIR for strength\n` +
+      `- Use Heart Rate zones and Power (where available) alongside RPE\n` +
+      `- Progressive overload: increase load, volume, or complexity systematically\n` +
+      `- Polarised training (80/20 easy/hard); avoid jumps >10% in volume or intensity\n` +
+      `- Periodization & autoregulation: vary intensity/volume; adjust to daily readiness and recent load\n` +
+      `- Fatigue signals: soreness/tiredness → suggest active recovery or reduced intensity\n` +
+      `- Time constraints: focus quality over volume if user is time-limited\n` +
+      `- Equipment: adapt to available tools (no equipment, dumbbells, gym, outdoor)\n` +
+      `- Volume anchoring: reference historical durations/distances; stay within user's typical range unless asked otherwise\n` +
+      `- No scheduling: do not reference specific days or times of day\n` +
+      `- Encourage context: if gym session type unknown, ask user to "Add context" to that workout\n` +
+      `- Explain the "why" briefly in 1-2 short bullets\n` +
+      `- Concise copy for mobile: title ≤6 words, duration/intensity ≤10 words, mainSet ≤22 words, each why ≤14 words\n\n` +
+      `GOAL:\n${goalText || '(not set)'}\n\n` +
+      `FITNESS PERSONA:\n${persona || '(not built yet)'}\n\n` +
+      `DATE: ${formatDateContext(currentDateContext)}\n\n` +
+      `RECENT WORKOUTS (last ${workouts.length}, ${contextCount} with notes):\n` +
+      `${formatWorkoutsAsText(workouts)}\n\n` +
       `Conversation history:\n${conversationContext}\n\n` +
       `New constraint/question from user: ${userMessage}\n\n` +
-      `Adjust the recommendation to honor the user's input while maintaining training principles.\n` +
-      `Be specific about RPE levels, durations, and why the adjustment makes sense for their goals, current state, and historical patterns.\n\n` +
-      `Return ONLY valid JSON (no markdown, no extra text) matching this schema:\n` +
+      `Adjust the recommendation to honour the user's input while maintaining training principles.\n\n` +
+      `Return ONLY valid JSON (no markdown) matching this schema:\n` +
       `{\n` +
       `  "options": [\n` +
       `    {\n` +
-      `      "title": "Clear, energizing title",\n` +
+      `      "title": "Short energizing title",\n` +
       `      "type": "run",\n` +
       `      "duration": "30 minutes",\n` +
-      `      "intensity": "RPE 6 (Moderate - sustainable effort)",\n` +
-      `      "warmup": "5 min easy warm-up specific to activity",\n` +
+      `      "intensity": "RPE 6 (Moderate)",\n` +
       `      "mainSet": "Specific workout with reps/duration and RPE target",\n` +
-      `      "cooldown": "3 min easy cool-down + stretch",\n` +
-      `      "why": ["Respects time constraint while maintaining stimulus", "Accommodates user's stated preference/limitation"]\n` +
+      `      "why": ["Respects time constraint while maintaining stimulus", "Matches user's stated preference"]\n` +
       `    }\n` +
       `  ],\n` +
-      `  "safetyChecks": ["Specific safety note based on their situation", "Adherence tip relevant to their constraint"]\n` +
+      `  "safetyChecks": ["Safety note specific to their situation", "Adherence tip relevant to their constraint"]\n` +
       `}\n\n` +
-      `If user wants harder, increase RPE 1-2 levels. If easier/shorter, reduce volume or intensity. Always include workout type. Respect equipment/time limits.`
+      `If user wants harder, increase RPE 1-2 levels. If easier/shorter, reduce volume or intensity. Always include workout type.`
 
     const genAI = new GoogleGenerativeAI(apiKey)
     const model = genAI.getGenerativeModel({ model: 'gemini-3.1-flash-lite' })
