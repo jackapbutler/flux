@@ -212,7 +212,7 @@ export function Hub() {
         {recommendation ? (
           <div className="stack">
             <div className="label">Recommended workouts</div>
-            
+
             {recommendation.options.map((option, idx) => (
               <RecommendationCard key={idx} option={option} index={idx} />
             ))}
