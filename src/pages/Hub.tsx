@@ -175,7 +175,15 @@ export function Hub() {
 
       <section className="card stack">
         <h2>Plan next workout</h2>
-        <p className="muted">Goal: {profile?.goalText ? `"${profile.goalText}"` : 'Not set yet'}</p>
+        <p className="muted">
+          Goal & preferences: {profile?.goalText ? `"${profile.goalText}"` : 'Not set yet'}
+        </p>
+        <p className="muted">
+          Environment constraints:{' '}
+          {profile?.workoutEnvironmentConstraintsText
+            ? `"${profile.workoutEnvironmentConstraintsText}"`
+            : 'Not set yet'}
+        </p>
 
         <div className="row">
           {!connected ? (

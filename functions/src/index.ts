@@ -379,8 +379,16 @@ async function getStravaAccessToken(uid: string): Promise<string> {
 
 async function buildFitnessPersonaText(uid: string): Promise<string> {
   const userSnap = await db.doc(`users/${uid}`).get()
-  const userData = (userSnap.data() ?? {}) as { goalText?: unknown; fitnessPersonaText?: unknown }
+  const userData = (userSnap.data() ?? {}) as {
+    goalText?: unknown
+    workoutEnvironmentConstraintsText?: unknown
+    fitnessPersonaText?: unknown
+  }
   const goalText = typeof userData.goalText === 'string' ? userData.goalText.trim() : ''
+  const workoutEnvironmentConstraintsText =
+    typeof userData.workoutEnvironmentConstraintsText === 'string'
+      ? userData.workoutEnvironmentConstraintsText.trim()
+      : ''
   const previousPersona = typeof userData.fitnessPersonaText === 'string' ? userData.fitnessPersonaText.trim() : ''
 
   const workoutsSnap = await db
@@ -435,7 +443,8 @@ async function buildFitnessPersonaText(uid: string): Promise<string> {
     `Keep output under 200 words. Be concrete, specific, and actionable.\n\n` +
     `PREVIOUS PERSONA (to be updated/refined):\n${previousPersona || '(no previous persona)'}\n\n` +
     `NEW CONTEXT:\n` +
-    `- Goal: ${goalText || '(not set)'}\n` +
+    `- Goal & preferences: ${goalText || '(not set)'}\n` +
+    `- Workout environment constraints: ${workoutEnvironmentConstraintsText || '(not set)'}\n` +
     `- Recent patterns: ${patterns}\n` +
     `- Recent workouts (JSON): ${JSON.stringify(workouts.slice(0, 10), null, 2)}\n\n` +
     `INSTRUCTIONS:\n` +
@@ -686,10 +695,15 @@ export const recommendNextWorkout = onCall(
     const userSnap = await db.doc(`users/${uid}`).get()
     const userData = (userSnap.data() ?? {}) as {
       goalText?: unknown
+      workoutEnvironmentConstraintsText?: unknown
       fitnessPersonaText?: unknown
     }
 
     const goalText = typeof userData.goalText === 'string' ? userData.goalText.trim() : ''
+    const workoutEnvironmentConstraintsText =
+      typeof userData.workoutEnvironmentConstraintsText === 'string'
+        ? userData.workoutEnvironmentConstraintsText.trim()
+        : ''
     const persona =
       typeof userData.fitnessPersonaText === 'string' ? userData.fitnessPersonaText.trim() : ''
 
@@ -712,7 +726,8 @@ export const recommendNextWorkout = onCall(
       `- No scheduling: do not reference specific days (e.g. "tomorrow") or times of day\n` +
       `- Explain the "why" briefly in 1-2 short bullets; recommend 1-3 options picking the best default from recent load\n` +
       `- Concise copy for mobile: title ≤6 words, duration/intensity ≤10 words, mainSet ≤22 words, each why ≤14 words\n\n` +
-      `GOAL:\n${goalText || '(not set)'}\n\n` +
+      `GOAL & PREFERENCES:\n${goalText || '(not set)'}\n\n` +
+      `WORKOUT ENVIRONMENT CONSTRAINTS:\n${workoutEnvironmentConstraintsText || '(not set)'}\n\n` +
       `FITNESS PERSONA:\n${persona || '(not built yet)'}\n\n` +
       `DATE: ${formatDateContext(currentDateContext)}\n\n` +
       `RECENT WORKOUTS (last ${workouts.length}, ${contextCount} with notes):\n` +
@@ -799,9 +814,14 @@ export const refineRecommendation = onCall({ secrets: [geminiApiKey] }, async (r
     const userSnap = await db.doc(`users/${uid}`).get()
     const userData = (userSnap.data() ?? {}) as {
       goalText?: unknown
+      workoutEnvironmentConstraintsText?: unknown
       fitnessPersonaText?: unknown
     }
     const goalText = typeof userData.goalText === 'string' ? userData.goalText.trim() : ''
+    const workoutEnvironmentConstraintsText =
+      typeof userData.workoutEnvironmentConstraintsText === 'string'
+        ? userData.workoutEnvironmentConstraintsText.trim()
+        : ''
     const persona =
       typeof userData.fitnessPersonaText === 'string' ? userData.fitnessPersonaText.trim() : ''
     const { currentDateContext, workouts, contextCount } = await getRecentRecommendationContext(uid)
@@ -829,7 +849,8 @@ export const refineRecommendation = onCall({ secrets: [geminiApiKey] }, async (r
       `- Encourage context: if gym session type unknown, ask user to "Add context" to that workout\n` +
       `- Explain the "why" briefly in 1-2 short bullets\n` +
       `- Concise copy for mobile: title ≤6 words, duration/intensity ≤10 words, mainSet ≤22 words, each why ≤14 words\n\n` +
-      `GOAL:\n${goalText || '(not set)'}\n\n` +
+      `GOAL & PREFERENCES:\n${goalText || '(not set)'}\n\n` +
+      `WORKOUT ENVIRONMENT CONSTRAINTS:\n${workoutEnvironmentConstraintsText || '(not set)'}\n\n` +
       `FITNESS PERSONA:\n${persona || '(not built yet)'}\n\n` +
       `DATE: ${formatDateContext(currentDateContext)}\n\n` +
       `RECENT WORKOUTS (last ${workouts.length}, ${contextCount} with notes):\n` +

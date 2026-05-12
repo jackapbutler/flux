@@ -3,6 +3,7 @@ import type { Timestamp } from 'firebase/firestore'
 
 export type UserProfile = {
   goalText?: string
+  workoutEnvironmentConstraintsText?: string
   fitnessPersonaText?: string
   fitnessPersonaUpdatedAt?: Timestamp
   createdAt?: Timestamp
