@@ -153,6 +153,10 @@
   position: relative;
 }
 
+.swipeCard {
+  touch-action: pan-y;
+}
+
 .optionHeader {
   display: flex;
   gap: 16px;
@@ -290,6 +294,14 @@
 .optionWhy {
   border-top: 1px solid var(--border);
   padding-top: 16px;
+}
+
+.swipeActions {
+  border-top: 1px solid var(--border);
+  padding-top: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
 }
 
 .whyList {
@@ -446,6 +458,13 @@
   align-items: center;
   justify-content: space-between;
   gap: 20px;
+}
+
+.savedWorkoutHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
 }
 
 .workoutMain {
@@ -605,6 +624,11 @@
   }
 
   .workoutHeader {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .savedWorkoutHeader {
     flex-direction: column;
     align-items: stretch;
   }
