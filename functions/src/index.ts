@@ -164,11 +164,32 @@ function incrementCounter(map: Record<string, number>, key: string): Record<stri
 }
 
 function parseDurationToMinutes(duration: string): number | null {
-  const matches = Array.from(duration.matchAll(/\d+/g))
-  if (matches.length === 0) return null
-  const first = Number(matches[0]?.[0])
-  if (!Number.isFinite(first) || first <= 0) return null
-  return first
+  const text = duration.toLowerCase()
+  let minutes = 0
+
+  const hourMatch = text.match(/(\d+(?:\.\d+)?)\s*(h|hr|hrs|hour|hours)\b/)
+  if (hourMatch?.[1]) {
+    const hours = Number(hourMatch[1])
+    if (Number.isFinite(hours) && hours > 0) {
+      minutes += Math.round(hours * 60)
+    }
+  }
+
+  const minuteMatch = text.match(/(\d+(?:\.\d+)?)\s*(m|min|mins|minute|minutes)\b/)
+  if (minuteMatch?.[1]) {
+    const directMinutes = Number(minuteMatch[1])
+    if (Number.isFinite(directMinutes) && directMinutes > 0) {
+      minutes += Math.round(directMinutes)
+    }
+  }
+
+  if (minutes > 0) return minutes
+
+  const genericMatch = text.match(/\d+/)
+  if (!genericMatch) return null
+  const fallbackMinutes = Number(genericMatch[0])
+  if (!Number.isFinite(fallbackMinutes) || fallbackMinutes <= 0) return null
+  return fallbackMinutes
 }
 
 function durationBucket(minutes: number | null): string {
