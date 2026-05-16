@@ -153,6 +153,7 @@ export function Hub() {
           swipePrompt: next.ui?.swipePrompt?.trim() || DEFAULT_SWIPE_PROMPT,
         },
       })
+      setSwipeModalOpen(Boolean(next.ui?.showSwipeModal && next.recommendation?.options?.length))
     } catch (e) {
       setError(errorMessage(e))
     } finally {
@@ -180,6 +181,7 @@ export function Hub() {
       const fn = httpsCallable<{ userMessage: string }, HubChatState>(functions, 'chatInHub')
       const res = await fn({ userMessage })
       setChatState(res.data)
+      setSwipeModalOpen(Boolean(res.data.ui?.showSwipeModal && res.data.recommendation?.options?.length))
     } catch (e) {
       setError(errorMessage(e))
       await loadChatState()
@@ -239,12 +241,6 @@ export function Hub() {
   }
 
   const hasSwipeRecommendations = Boolean(chatState.recommendation && chatState.recommendation.options.length > 0)
-
-  useEffect(() => {
-    if (chatState.ui?.showSwipeModal && hasSwipeRecommendations) {
-      setSwipeModalOpen(true)
-    }
-  }, [chatState.ui?.showSwipeModal, hasSwipeRecommendations])
 
   useEffect(() => {
     if (!swipeModalOpen) return
