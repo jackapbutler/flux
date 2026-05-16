@@ -60,6 +60,9 @@ type TrainingPlanResponse = {
   safetyChecks: string[]
 }
 
+const MAX_SWIPE_PROMPT_LENGTH = 96
+const MAX_SWIPE_PROMPT_WORDS = 16
+
 type RecommendationPreferences = {
   acceptedCount: number
   passedCount: number
@@ -343,12 +346,21 @@ function recommendationToSuggestedMessages(recommendation: RecommendationRespons
   })
 }
 
+function limitWords(text: string, maxWords: number): string {
+  const words = text.trim().split(/\s+/).filter(Boolean)
+  if (words.length <= maxWords) return text.trim()
+  return words.slice(0, maxWords).join(' ')
+}
+
 function normalizeHubChatUi(
   raw: unknown,
   recommendation: RecommendationResponse | null,
 ): { showSwipeModal: boolean; swipePrompt: string } {
   const input = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : {}
-  const swipePromptRaw = sanitizeText(input.swipePrompt, 140)
+  const swipePromptRaw = limitWords(
+    sanitizeText(input.swipePrompt, MAX_SWIPE_PROMPT_LENGTH),
+    MAX_SWIPE_PROMPT_WORDS,
+  )
   const hasRecommendation = Boolean(recommendation && recommendation.options.length > 0)
   return {
     showSwipeModal:

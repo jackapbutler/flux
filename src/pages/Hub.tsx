@@ -241,6 +241,10 @@ export function Hub() {
   }
 
   const hasSwipeRecommendations = Boolean(chatState.recommendation && chatState.recommendation.options.length > 0)
+  const swipeOptionCountLabel =
+    chatState.recommendation?.options.length === 1
+      ? '1 swipeable workout option ready from chat.'
+      : `${chatState.recommendation?.options.length ?? 0} swipeable workout options ready from chat.`
 
   useEffect(() => {
     if (!swipeModalOpen) return
@@ -326,8 +330,7 @@ export function Hub() {
         {hasSwipeRecommendations ? (
           <div className="hubSwipeLauncher">
             <div className="muted" style={{ fontSize: '13px' }}>
-              {chatState.recommendation?.options.length} swipeable workout option
-              {chatState.recommendation?.options.length === 1 ? '' : 's'} ready from chat.
+              {swipeOptionCountLabel}
             </div>
             <button type="button" className="secondary" onClick={() => setSwipeModalOpen(true)}>
               Open swipe modal
@@ -413,16 +416,8 @@ export function Hub() {
         {swipeModalOpen && hasSwipeRecommendations ? (
           <div
             className="hubModalOverlay"
-            role="button"
-            tabIndex={0}
-            aria-label="Close workout swipe modal"
+            role="presentation"
             onClick={() => setSwipeModalOpen(false)}
-            onKeyDown={(event) => {
-              if (event.key === 'Enter' || event.key === ' ') {
-                event.preventDefault()
-                setSwipeModalOpen(false)
-              }
-            }}
           >
             <div
               className="hubModalCard"
