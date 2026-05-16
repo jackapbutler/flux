@@ -97,12 +97,18 @@ Return ONLY valid JSON with this schema:
     "options": [{"title":"", "type":"run", "duration":"", "intensity":"", "mainSet":"", "why":["",""]}],
     "safetyChecks": ["", ""]
   },
+  "ui": {
+    "showSwipeModal": true,
+    "swipePrompt": "short CTA for swipe mode"
+  },
   "suggestedMessages": ["", "", ""]
 }
 
 Rules for recommendation:
 - recommendation may be null if user did not ask for a workout recommendation or you haven't identified a proactive need for one.
 - if present, include 1-3 options with concise mobile copy
+- set ui.showSwipeModal true only when you have fresh options that the user should review immediately.
+- ui.swipePrompt should be <= 16 words and action-oriented.
 - suggestedMessages should be 0-5 short tappable follow-ups`.trim()
 }
 

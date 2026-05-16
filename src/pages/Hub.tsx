@@ -43,6 +43,7 @@ export function Hub() {
   const [respondingToRecommendation, setRespondingToRecommendation] = useState(false)
   const [savedWorkouts, setSavedWorkouts] = useState<SavedWorkout[]>([])
   const [expandedSavedId, setExpandedSavedId] = useState<string | null>(null)
+  const [swipeModalOpen, setSwipeModalOpen] = useState(false)
   const [chatLoading, setChatLoading] = useState(false)
   const [sendingMessage, setSendingMessage] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -51,6 +52,10 @@ export function Hub() {
     messages: [{ role: 'assistant', content: DEFAULT_GREETING }],
     recommendation: null,
     suggestedMessages: [],
+    ui: {
+      showSwipeModal: false,
+      swipePrompt: '',
+    }
   })
 
   const workoutsRef = useMemo(() => user ? collection(db, 'users', user.uid, 'workouts') : null, [user])
@@ -89,7 +94,9 @@ export function Hub() {
         messages: res.data.messages.length > 0 ? res.data.messages : [{ role: 'assistant', content: DEFAULT_GREETING }],
         recommendation: res.data.recommendation,
         suggestedMessages: res.data.suggestedMessages ?? [],
+        ui: res.data.ui
       })
+      if (res.data.ui?.showSwipeModal) setSwipeModalOpen(true)
     } catch (e) { setError(errorMessage(e)) } finally { setChatLoading(false) }
   }, [connected])
 
@@ -105,6 +112,7 @@ export function Hub() {
       const fn = httpsCallable<{ userMessage: string }, HubChatState>(functions, 'chatInHub')
       const res = await fn({ userMessage })
       setChatState(res.data)
+      if (res.data.ui?.showSwipeModal) setSwipeModalOpen(true)
     } catch (e) { setError(errorMessage(e)); void loadChatState() } finally { setSendingMessage(false) }
   }
 
@@ -114,14 +122,21 @@ export function Hub() {
       const fn = httpsCallable<{ decision: 'pass' | 'accept'; option: WorkoutOption }, { saved: boolean }>(functions, 'respondToWorkoutRecommendation')
       await fn({ decision, option })
       if (decision === 'accept') {
-        setStatus('Plan accepted'); setChatState((prev) => ({ ...prev, recommendation: null }))
+        setStatus('Plan accepted'); setChatState((prev) => ({ ...prev, recommendation: null })); setSwipeModalOpen(false)
       } else {
-        setStatus('Passed'); setChatState((prev) => ({
-          ...prev, recommendation: prev.recommendation ? { ...prev.recommendation, options: prev.recommendation.options.filter((o) => o.title !== option.title) } : null
-        }))
+        setStatus('Passed'); setChatState((prev) => {
+          const nextOptions = prev.recommendation ? prev.recommendation.options.filter((o) => o.title !== option.title) : []
+          if (nextOptions.length === 0) setSwipeModalOpen(false)
+          return {
+            ...prev,
+            recommendation: prev.recommendation ? { ...prev.recommendation, options: nextOptions } : null
+          }
+        })
       }
     } catch (e) { setError(errorMessage(e)) } finally { setRespondingToRecommendation(false) }
   }
+
+  const hasSwipeRecommendations = Boolean(chatState.recommendation && chatState.recommendation.options.length > 0)
 
   return (
     <div className="stack">
@@ -148,17 +163,61 @@ export function Hub() {
         {!connected ? (
           <button className="primary" onClick={() => nav('/onboarding')} style={{ width: '100%' }}>Connect Strava</button>
         ) : (
-          <RecommendationChat
-            messages={chatState.messages}
-            suggestedMessages={chatState.suggestedMessages}
-            onSend={sendChatMessage}
-            loading={chatLoading || sendingMessage}
-            disabled={respondingToRecommendation}
-          />
+          <div className="stack" style={{ gap: 12 }}>
+            {hasSwipeRecommendations && (
+              <div className="swipe-launcher">
+                <div className="muted small">{chatState.ui?.swipePrompt || 'I have workout options ready.'}</div>
+                <button className="primary small" onClick={() => setSwipeModalOpen(true)}>Open Swipe Mode</button>
+              </div>
+            )}
+            <RecommendationChat
+              messages={chatState.messages}
+              suggestedMessages={chatState.suggestedMessages}
+              onSend={sendChatMessage}
+              loading={chatLoading || sendingMessage}
+              disabled={respondingToRecommendation}
+            />
+          </div>
         )}
       </section>
 
-      {chatState.recommendation && chatState.recommendation.options.length > 0 && (
+      {swipeModalOpen && hasSwipeRecommendations && (
+        <div className="modal-overlay" onClick={() => setSwipeModalOpen(false)}>
+          <div className="modal-card stack" onClick={(e) => e.stopPropagation()}>
+            <div className="row" style={{ justifyContent: 'space-between' }}>
+              <div className="stack" style={{ gap: 2 }}>
+                <h3 style={{ fontSize: '1.1rem' }}>Swipe Workouts</h3>
+                <p className="muted small" style={{ margin: 0 }}>Review and save what fits today.</p>
+              </div>
+              <button className="secondary small" onClick={() => setSwipeModalOpen(false)}>Close</button>
+            </div>
+            
+            <div className="stack" style={{ gap: 16 }}>
+              {chatState.recommendation?.options.map((option, idx) => (
+                <RecommendationCard
+                  key={idx}
+                  option={option}
+                  index={idx}
+                  onPass={() => void respondToRecommendation('pass', option)}
+                  onAccept={() => void respondToRecommendation('accept', option)}
+                  disabled={respondingToRecommendation}
+                />
+              ))}
+            </div>
+
+            {chatState.recommendation?.safetyChecks && chatState.recommendation.safetyChecks.length > 0 && (
+              <div className="stack" style={{ gap: 8, marginTop: '8px' }}>
+                <div className="rec-label">Safety Checks</div>
+                <ul className="whyList" style={{ marginTop: 0 }}>
+                  {chatState.recommendation.safetyChecks.map((check, i) => <li key={i}>{check}</li>)}
+                </ul>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {chatState.recommendation && chatState.recommendation.options.length > 0 && !swipeModalOpen && (
         <section className="stack">
           <h2 style={{ fontSize: '1.1rem' }}>Recommended Plans</h2>
           <div className="stack">
