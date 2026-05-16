@@ -56,7 +56,7 @@ function errorMessage(err: unknown): string {
 
 export function Plans() {
   const { user, profile } = useAuth()
-  const [workouts, setWorkouts] = useState<Workout[]>([])
+  const [_, setWorkouts] = useState<Workout[]>([])
   const [plan, setPlan] = useState<TrainingPlanResponse | null>(null)
   const [planning, setPlanning] = useState(false)
   const [planRangeValue, setPlanRangeValue] = useState(4)
@@ -151,13 +151,13 @@ export function Plans() {
             <h2 style={{ fontSize: '1.1rem' }}>Plan Overview</h2>
             <div className="badge">{plan.range.value} {plan.range.unit}</div>
           </div>
-          
+
           {plan.safetyChecks.length > 0 && (
             <div className="card stack" style={{ padding: '16px', background: 'rgba(245, 158, 11, 0.05)', borderColor: 'rgba(245, 158, 11, 0.1)' }}>
-               <div className="rec-label" style={{ color: 'var(--accent-2)' }}>Safety Guidelines</div>
-               <ul className="whyList">
-                 {plan.safetyChecks.map((c, i) => <li key={i}>{c}</li>)}
-               </ul>
+              <div className="rec-label" style={{ color: 'var(--accent-2)' }}>Safety Guidelines</div>
+              <ul className="whyList">
+                {plan.safetyChecks.map((c, i) => <li key={i}>{c}</li>)}
+              </ul>
             </div>
           )}
 

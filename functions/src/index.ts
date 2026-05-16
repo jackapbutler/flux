@@ -659,7 +659,8 @@ async function getStravaAccessToken(uid: string): Promise<string> {
 }
 
 async function buildFitnessPersonaText(uid: string): Promise<string> {
-  const userSnap = await db.doc(`users/${uid}`).get()
+  const userRef = db.doc(`users/${uid}`)
+  const userSnap = await userRef.get()
   const userData = (userSnap.data() ?? {}) as {
     goalText?: unknown
     workoutEnvironmentConstraintsText?: unknown
@@ -1106,7 +1107,7 @@ export const chatInHub = onCall({ secrets: [geminiApiKey], invoker: 'public' }, 
     const conversation = [...existingState.messages.slice(-18), { role: 'user' as const, content: userMessage }]
     const conversationContext = conversation.map((msg) => `${msg.role}: ${msg.content}`).join('\n')
 
-<    const prompt = prompts.buildChatPrompt(
+    const prompt = prompts.buildChatPrompt(
       goalText,
       workoutEnvironmentConstraintsText,
       persona,

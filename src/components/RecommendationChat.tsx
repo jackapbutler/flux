@@ -7,9 +7,6 @@ type Props = {
   messages: ChatMessage[]
   suggestedMessages?: string[]
   onSend: (userMessage: string) => Promise<void>
-  onOpenSwipeModal?: () => void
-  swipePrompt?: string
-  showSwipeEntry?: boolean
   disabled?: boolean
   loading?: boolean
   placeholder?: string
@@ -19,9 +16,6 @@ export function RecommendationChat({
   messages,
   suggestedMessages = [],
   onSend,
-  onOpenSwipeModal,
-  swipePrompt,
-  showSwipeEntry = false,
   disabled,
   loading = false,
   placeholder = "Refine today's plan...",
@@ -137,13 +131,13 @@ export function RecommendationChat({
             placeholder={placeholder}
             disabled={loading || disabled || transcribing || recording}
           />
-          
-          <button 
+
+          <button
             className={`secondary ${recording ? 'recording' : ''}`}
-            style={{ 
-              width: '36px', 
-              height: '36px', 
-              padding: 0, 
+            style={{
+              width: '36px',
+              height: '36px',
+              padding: 0,
               borderRadius: '50%',
               background: recording ? 'var(--error)' : 'transparent',
               borderColor: recording ? 'var(--error)' : 'var(--border)'
