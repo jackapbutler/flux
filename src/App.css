@@ -1,110 +1,40 @@
-.page {
-  width: 100%;
-  max-width: 900px;
+/* Flux Global Layout Utilities */
+.app-container {
+  max-width: 600px;
   margin: 0 auto;
-  padding: 40px 24px 80px;
-  text-align: left;
+  padding: 0 16px 120px;
+  min-height: 100vh;
 }
 
-.header {
+.field {
   display: flex;
-  align-items: center;
-  justify-content: flex-start;
-  gap: 20px;
-  padding: 0 0 32px;
-  position: relative;
+  flex-direction: column;
+  gap: 8px;
 }
 
-.header .logo {
-  font-size: 22px;
-  font-weight: 800;
-  color: var(--text-h);
-  letter-spacing: -1px;
-}
-
-.header .logo span {
-  color: var(--accent);
-}
-
-.brandTagline {
-  margin-top: 2px;
-  font-size: 12px;
-  color: var(--muted);
-  max-width: 480px;
-}
-
-.card.hero {
-  background: linear-gradient(135deg, #0ea5e9 0%, #3b82f6 100%);
-  color: white;
-  border: none;
-  padding: 40px;
-  position: relative;
-  overflow: hidden;
-}
-
-.card.hero::before {
-  content: "";
-  position: absolute;
-  top: -50px;
-  right: -50px;
-  width: 200px;
-  height: 200px;
-  background: rgba(255, 255, 255, 0.1);
-  border-radius: 50%;
-}
-
-.card.hero h2 {
-  color: white;
-  font-size: 28px;
-  margin-bottom: 12px;
-}
-
-.card.hero .muted {
-  color: rgba(255, 255, 255, 0.9);
-  font-size: 14px;
-  max-width: 500px;
-}
-
-.metricGrid {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 24px;
-  margin-top: 32px;
-}
-
-.metric {
-  background: rgba(255, 255, 255, 0.12);
-  backdrop-filter: blur(8px);
-  padding: 20px;
-  border-radius: 16px;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-}
-
-.metricLabel {
-  font-size: 12px;
+.field span {
+  font-size: 0.75rem;
   font-weight: 700;
   text-transform: uppercase;
+  color: var(--muted);
   letter-spacing: 0.05em;
-  opacity: 0.8;
-  margin-bottom: 4px;
 }
 
-.metricValue {
-  font-size: 22px;
-  font-weight: 800;
-}
-
-/* Auth Pages */
-.auth {
-  display: flex;
-  justify-content: center;
-  padding: 20px 0 60px;
-}
-
-.authCard {
+input, select, textarea {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 12px 16px;
+  color: var(--text-h);
+  font-family: var(--font-sans);
+  font-size: 0.9375rem;
   width: 100%;
-  max-width: 480px;
-  padding: 40px !important;
+  outline: none;
+  transition: border-color 0.2s ease;
+}
+
+input:focus, select:focus, textarea:focus {
+  border-color: var(--accent);
 }
 
 .dividerText {
@@ -113,10 +43,9 @@
   gap: 16px;
   margin: 8px 0;
   color: var(--muted);
-  font-size: 13px;
-  font-weight: 600;
+  font-size: 0.75rem;
+  font-weight: 700;
   text-transform: uppercase;
-  letter-spacing: 0.05em;
 }
 
 .dividerText::before,
@@ -128,238 +57,45 @@
 }
 
 .errorBox {
-  background: rgba(244, 63, 94, 0.04);
-  border: 1px solid rgba(244, 63, 94, 0.1);
-  border-radius: 12px;
-  padding: 12px 16px;
+  background: rgba(239, 68, 68, 0.05);
+  border: 1px solid rgba(239, 68, 68, 0.1);
+  border-radius: var(--radius);
+  padding: 16px;
 }
 
 .errorBox summary {
   cursor: pointer;
-  font-size: 13px;
+  font-size: 0.8125rem;
   font-weight: 700;
   color: var(--error);
   margin-bottom: 4px;
 }
 
-/* Workout Options */
-.workoutOption {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 20px;
-  padding: 20px;
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-  position: relative;
-}
-
-.swipeCard {
-  touch-action: pan-y;
-  position: relative;
-  overflow: hidden;
-}
-
-.swipeStamp {
-  position: absolute;
-  top: 40px;
-  padding: 8px 16px;
-  border: 4px solid;
-  border-radius: 8px;
-  font-size: 32px;
-  font-weight: 900;
-  text-transform: uppercase;
-  z-index: 10;
-  pointer-events: none;
-  opacity: 0;
-  transform: rotate(-15deg);
-}
-
-.swipeStamp--accept {
-  right: 40px;
-  color: #10b981;
-  border-color: #10b981;
-  transform: rotate(15deg);
-}
-
-.swipeStamp--pass {
-  left: 40px;
-  color: #ef4444;
-  border-color: #ef4444;
-}
-
-.optionHeader {
-  display: flex;
+.grid {
+  display: grid;
   gap: 16px;
 }
 
-.workoutIconWrapper {
-  width: 48px;
-  height: 48px;
-  background: var(--accent-bg);
-  border-radius: 16px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--accent);
-}
-
-.headerContent {
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-}
-
-.optionRank {
-  font-size: 11px;
-  font-weight: 700;
-  color: var(--accent);
-  text-transform: uppercase;
-  letter-spacing: 0.1em;
-}
-
-.optionTitle {
-  font-size: clamp(18px, 4.8vw, 22px);
-  line-height: 1.2;
-  margin: 4px 0 0;
-  max-width: 100%;
-  overflow-wrap: anywhere;
-}
-
-.optionMetrics {
-  display: flex;
-  gap: 24px;
-  padding: 12px 14px;
-  background: var(--surface-2);
-  border-radius: 16px;
-}
-
-.metricSmall {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.optionMetricLabel {
-  font-size: 10px;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--muted);
-}
-
-.optionMetricValue {
-  font-size: 13px;
-  font-weight: 700;
-  color: var(--text-h);
-  line-height: 1.3;
-}
-
-.optionSection {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.sectionLabel {
-  font-size: 11px;
-  font-weight: 800;
-  text-transform: uppercase;
-  letter-spacing: 0.1em;
-  color: var(--muted);
-}
-
-.sectionContent {
-  font-size: 13px;
-  color: var(--text-h);
-  font-weight: 500;
-  line-height: 1.45;
-  overflow-wrap: anywhere;
-}
-
-.optionSummary {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.optionPreview {
-  font-size: 12px;
-  color: var(--text);
-  line-height: 1.45;
-  overflow-wrap: anywhere;
-}
-
-.optionDetails {
-  border-top: 1px solid var(--border);
-  padding-top: 16px;
-}
-
-.optionDetails[open] {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-
-.optionToggle {
-  cursor: pointer;
-  color: var(--accent);
-  font-size: 12px;
-  font-weight: 700;
-  list-style: none;
-}
-
-.optionToggle::-webkit-details-marker {
-  display: none;
-}
-
-.optionToggle::before {
-  content: "▸";
-  margin-right: 6px;
-}
-
-.optionDetails[open] .optionToggle::before {
-  content: "▾";
-}
-
-.optionWhy {
-  border-top: 1px solid var(--border);
-  padding-top: 16px;
-}
-
-.swipeActions {
-  border-top: 1px solid var(--border);
-  padding-top: 16px;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
+@media (min-width: 600px) {
+  .grid-2 {
+    grid-template-columns: 1fr 1fr;
+  }
 }
 
 .whyList {
-  margin: 12px 0 0;
+  margin: 0;
   padding: 0;
   list-style: none;
   display: flex;
   flex-direction: column;
-  gap: 10px;
-}
-
-.whyPreview {
-  margin: 12px 0 0;
-  font-size: 12px;
-  font-weight: 500;
-  color: var(--text-h);
-  line-height: 1.45;
-  overflow-wrap: anywhere;
+  gap: 8px;
 }
 
 .whyList li {
   position: relative;
-  padding-left: 28px;
-  font-size: 12px;
-  font-weight: 500;
-  line-height: 1.45;
-  overflow-wrap: anywhere;
+  padding-left: 20px;
+  font-size: 0.8125rem;
+  color: var(--text);
 }
 
 .whyList li::before {
@@ -367,412 +103,4 @@
   position: absolute;
   left: 0;
   color: var(--accent-2);
-}
-
-/* Chat Styles */
-.chatContainer {
-  background: var(--surface-2);
-  border-radius: 20px;
-  padding: 18px;
-  border: 1px solid var(--border);
-}
-
-.chatMessages {
-  max-height: 400px;
-  overflow-y: auto;
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-  margin-bottom: 20px;
-  padding-right: 8px;
-}
-
-.chatMessage {
-  padding: 12px 16px;
-  border-radius: 16px;
-  max-width: 85%;
-  font-size: 13px;
-}
-
-.chatMessage.assistant {
-  background: var(--surface);
-  align-self: flex-start;
-  border: 1px solid var(--border);
-}
-
-.chatMessage.user {
-  background: var(--accent);
-  color: white;
-  align-self: flex-end;
-}
-
-.chatRole {
-  font-size: 10px;
-  font-weight: 800;
-  text-transform: uppercase;
-  margin-bottom: 6px;
-  opacity: 0.7;
-}
-
-.chatInput {
-  display: flex;
-  gap: 12px;
-}
-
-.chatInput input {
-  flex: 1;
-}
-
-.chatSuggestions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin-bottom: 14px;
-}
-
-.chatSwipeEntry {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 14px;
-  padding: 10px 12px;
-  margin-bottom: 12px;
-}
-
-.chatSuggestion {
-  min-height: auto;
-  padding: 8px 10px;
-  font-size: 12px;
-  border-radius: 999px;
-}
-
-.hubSwipeLauncher {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  background: var(--surface-2);
-  border: 1px solid var(--border);
-  border-radius: 14px;
-  padding: 10px 12px;
-}
-
-.hubModalOverlay {
-  position: fixed;
-  inset: 0;
-  background: rgba(15, 23, 42, 0.58);
-  z-index: 1100;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 16px;
-}
-
-.hubModalCard {
-  width: min(760px, 100%);
-  max-height: 90vh;
-  overflow-y: auto;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 20px;
-  padding: 18px;
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-  box-shadow: var(--shadow-lg);
-}
-
-/* Tabs */
-.tabNav {
-  display: flex;
-  gap: 8px;
-  background: var(--surface-2);
-  padding: 6px;
-  border-radius: 14px;
-  margin-bottom: 24px;
-}
-
-.tabButton {
-  flex: 1;
-  padding: 10px;
-  border-radius: 10px;
-  background: transparent;
-  color: var(--text);
-  font-size: 13px;
-  border: none;
-  cursor: pointer;
-}
-
-.tabButton.active {
-  background: var(--surface);
-  color: var(--text-h);
-  box-shadow: var(--shadow);
-}
-
-.planRangeControls {
-  align-items: flex-end;
-}
-
-.planRangeInput {
-  width: 92px;
-}
-
-.planRangeSelect {
-  min-width: 120px;
-}
-
-.planList {
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-/* List Items */
-.listItem {
-  background: var(--surface);
-  border-radius: 16px;
-  padding: 20px;
-  border: 1px solid var(--border);
-  margin-bottom: 16px;
-  list-style: none;
-}
-
-.workoutName {
-  font-size: 16px;
-  font-weight: 700;
-  color: var(--text-h);
-}
-
-.workoutHeader {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 20px;
-}
-
-.savedWorkoutHeader {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-}
-
-.workoutMain {
-  display: flex;
-  align-items: center;
-  gap: 16px;
-}
-
-.workoutIcon {
-  width: 48px;
-  height: 48px;
-  background: var(--surface-2);
-  border-radius: 14px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border: 1px solid var(--border);
-}
-
-.contextStatus {
-  font-size: 12px;
-  font-weight: 600;
-  border-radius: 999px;
-  padding: 4px 10px;
-}
-
-.contextStatus--added {
-  color: #065f46;
-  background: #ecfdf5;
-  border: 1px solid #a7f3d0;
-}
-
-.contextStatus--missing {
-  color: #be123c;
-  background: #fff1f2;
-  border: 1px solid #fecdd3;
-}
-
-.menuToggle {
-  width: 42px;
-  height: 42px;
-  min-width: 42px;
-  padding: 0;
-  border-radius: 12px;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  color: var(--text-h);
-  font-size: 18px;
-}
-
-.menuPanel {
-  display: none;
-  position: absolute;
-  left: 0;
-  top: calc(100% - 18px);
-  min-width: 220px;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 14px;
-  padding: 10px;
-  box-shadow: var(--shadow-lg);
-  z-index: 20;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.menuPanel.open {
-  display: flex;
-}
-
-.menuPanel .secondary {
-  justify-content: flex-start;
-}
-
-.menuPanel .link,
-.menuPanel .secondary {
-  width: 100%;
-}
-
-.contextTagList {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
-.contextTag {
-  border: 1px solid transparent;
-  border-radius: 999px;
-  padding: 6px 10px;
-  font-size: 12px;
-  font-weight: 700;
-  line-height: 1;
-  cursor: pointer;
-}
-
-.contextTag--strength {
-  background: #eff6ff;
-  color: #1d4ed8;
-  border-color: #bfdbfe;
-}
-
-.contextTag--intensity {
-  background: #fff7ed;
-  color: #c2410c;
-  border-color: #fed7aa;
-}
-
-.contextTag--recovery {
-  background: #ecfdf5;
-  color: #047857;
-  border-color: #a7f3d0;
-}
-
-.contextTag--focus {
-  background: #f5f3ff;
-  color: #6d28d9;
-  border-color: #ddd6fe;
-}
-
-.contextTag.active {
-  box-shadow: inset 0 0 0 1px currentColor;
-  transform: translateY(-1px);
-}
-
-.link {
-  color: var(--text-h);
-  text-decoration: none;
-  font-weight: 600;
-  font-size: 13px;
-  padding: 8px 12px;
-  border-radius: 10px;
-  transition: all 0.2s ease;
-}
-
-.link:hover {
-  background: var(--accent-bg);
-  color: var(--accent);
-}
-
-.grid {
-  display: grid;
-  gap: 24px;
-}
-
-@media (min-width: 900px) {
-  .grid {
-    grid-template-columns: 1fr 1fr;
-    align-items: start;
-  }
-}
-
-@media (max-width: 640px) {
-  .page {
-    padding: 24px 16px 40px;
-  }
-
-  .header {
-    align-items: flex-start;
-    padding-bottom: 24px;
-    gap: 12px;
-  }
-
-  .brandTagline {
-    display: none;
-  }
-  
-  .metricGrid {
-    grid-template-columns: 1fr;
-    gap: 12px;
-  }
-  
-  .card.hero {
-    padding: 24px 20px;
-  }
-  
-  .optionMetrics {
-    flex-direction: column;
-    gap: 10px;
-    padding: 10px 12px;
-  }
-
-  .optionMetricValue {
-    font-size: 12px;
-  }
-
-  .chatSwipeEntry,
-  .hubSwipeLauncher {
-    flex-direction: column;
-    align-items: stretch;
-  }
-
-  .sectionContent,
-  .optionPreview,
-  .whyPreview,
-  .whyList li {
-    font-size: 11px;
-  }
-
-  .workoutHeader {
-    flex-direction: column;
-    align-items: stretch;
-  }
-
-  .savedWorkoutHeader {
-    flex-direction: column;
-    align-items: stretch;
-  }
-
-  .menuPanel {
-    right: 0;
-    min-width: 0;
-    width: 100%;
-  }
-
-  .authCard {
-    padding: 24px !important;
-  }
 }

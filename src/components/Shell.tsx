@@ -1,87 +1,53 @@
 import { signOut } from 'firebase/auth'
-import { useState } from 'react'
-import { Link, Outlet } from 'react-router-dom'
+import { Link, Outlet, useLocation } from 'react-router-dom'
 import { auth } from '../lib/firebase'
 import { useAuth } from '../lib/useAuth'
 
 export function Shell() {
   const { user } = useAuth()
-  const [navOpen, setNavOpen] = useState(false)
-
-  const closeNav = () => setNavOpen(false)
+  const { pathname } = useLocation()
 
   return (
-    <div className="page">
-      <header className="header">
-        <button
-          type="button"
-          className="menuToggle"
-          aria-label={navOpen ? 'Close navigation menu' : 'Open navigation menu'}
-          aria-expanded={navOpen}
-          onClick={() => setNavOpen((open) => !open)}
-        >
-          <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" focusable="false">
-            <path
-              d="M4 6h16M4 12h16M4 18h16"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-            />
-          </svg>
-        </button>
-
-        <div className="brand">
-          <Link to={user ? '/app' : '/login'} className="brandLink">
-            <div className="logo">
-              FLUX<span>.</span>
-            </div>
-          </Link>
-          <p className="brandTagline">
-            Thoughtful, personalized training guidance.
-          </p>
-        </div>
-
-        <nav className={`menuPanel ${navOpen ? 'open' : ''}`}>
-          {user ? (
-            <>
-              <Link to="/app" className="link" onClick={closeNav}>
-                Hub
-              </Link>
-              <Link to="/log" className="link" onClick={closeNav}>
-                Log
-              </Link>
-              <Link to="/plans" className="link" onClick={closeNav}>
-                Plans
-              </Link>
-              <Link to="/onboarding" className="link" onClick={closeNav}>
-                Settings
-              </Link>
-              <button
-                type="button"
-                className="secondary"
-                style={{ minHeight: 'auto', padding: '6px 14px', fontSize: '13px' }}
-                onClick={() => {
-                  closeNav()
-                  void signOut(auth)
-                }}
-              >
-                Sign out
-              </button>
-            </>
-          ) : (
-            <>
-              <Link to="/login" className="link" onClick={closeNav}>
-                Sign in
-              </Link>
-              <Link to="/signup" className="link" onClick={closeNav}>
-                Create account
-              </Link>
-            </>
-          )}
-        </nav>
+    <div className="app-container">
+      {/* Global Header (Mobile Optimized) */}
+      <header className="row" style={{ justifyContent: 'space-between', padding: '24px 0 16px' }}>
+        <Link to="/" style={{ textDecoration: 'none' }}>
+          <h1 style={{ fontSize: '1.25rem', letterSpacing: '-0.04em' }}>FLUX✦</h1>
+        </Link>
+        {user && (
+          <button 
+            className="secondary small" 
+            style={{ padding: '6px 12px', fontSize: '0.7rem' }}
+            onClick={() => void signOut(auth)}
+          >
+            Sign Out
+          </button>
+        )}
       </header>
+
       <Outlet />
+
+      {/* Global Bottom Navigation for Logged-in Users */}
+      {user && (
+        <nav className="bottom-nav">
+          <Link to="/app" className={`nav-item ${pathname === '/app' ? 'active' : ''}`}>
+            <span style={{ fontSize: '1.2rem' }}>✦</span>
+            <span>Hub</span>
+          </Link>
+          <Link to="/log" className={`nav-item ${pathname === '/log' ? 'active' : ''}`}>
+            <span style={{ fontSize: '1.2rem' }}>▤</span>
+            <span>Log</span>
+          </Link>
+          <Link to="/plans" className={`nav-item ${pathname === '/plans' ? 'active' : ''}`}>
+            <span style={{ fontSize: '1.2rem' }}>🗓</span>
+            <span>Plan</span>
+          </Link>
+          <Link to="/onboarding" className={`nav-item ${pathname === '/onboarding' ? 'active' : ''}`}>
+            <span style={{ fontSize: '1.2rem' }}>⚙</span>
+            <span>Settings</span>
+          </Link>
+        </nav>
+      )}
     </div>
   )
 }

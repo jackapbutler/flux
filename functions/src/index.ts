@@ -4,6 +4,7 @@ import { GoogleGenerativeAI } from '@google/generative-ai'
 import { initializeApp } from 'firebase-admin/app'
 import { getFirestore, FieldValue } from 'firebase-admin/firestore'
 import crypto from 'node:crypto'
+import * as prompts from './prompts'
 
 initializeApp()
 
@@ -719,27 +720,27 @@ async function buildFitnessPersonaText(uid: string): Promise<string> {
   const genAI = new GoogleGenerativeAI(apiKey)
   const model = genAI.getGenerativeModel({ model: 'gemini-3.1-flash-lite' })
 
-  const prompt =
-    `You are Flux, a calm personal trainer evolving a user's fitness persona.\n` +
-    `Your goal is to INCREMENTALLY UPDATE, APPEND, and OVERRIDE the existing persona based on new data.\n` +
-    `Keep output under 200 words. Be concrete, specific, and actionable.\n\n` +
-    `PREVIOUS PERSONA (to be updated/refined):\n${previousPersona || '(no previous persona)'}\n\n` +
-    `NEW CONTEXT:\n` +
-    `- Goal & preferences: ${goalText || '(not set)'}\n` +
-    `- Workout environment constraints: ${workoutEnvironmentConstraintsText || '(not set)'}\n` +
-    `- Expressed preferences (from workout recommendations): ${preferenceText || '(no preference data yet)'}\n` +
-    `- Recent patterns: ${patterns}\n` +
-    `- Recent workouts (JSON): ${JSON.stringify(workouts.slice(0, 10), null, 2)}\n\n`
-    +
-    `INSTRUCTIONS:\n` +
-    `1. Maintain long-term insights from the previous persona that are still relevant.\n` +
-    `2. Override sections if new data shows a shift in behavior, modality, or fatigue levels.\n` +
-    `3. Append new observations from recent notes (contextText/contextTags) or trends.\n` +
-    `4. Output three sections (Athlete Profile, Constraints & Risks, Next 14 Days Focus).\n\n` +
-    `Output the final updated persona.`
+  const prompt = prompts.buildPersonaPrompt(
+    previousPersona,
+    goalText,
+    workoutEnvironmentConstraintsText,
+    preferenceText,
+    patterns,
+    JSON.stringify(workouts.slice(0, 10), null, 2)
+  )
 
   const result = await model.generateContent(prompt)
-  return result.response.text().trim()
+  const updatedPersona = result.response.text().trim()
+
+  await userRef.set(
+    {
+      fitnessPersonaText: updatedPersona,
+      fitnessPersonaUpdatedAt: FieldValue.serverTimestamp(),
+      updatedAt: FieldValue.serverTimestamp(),
+    },
+    { merge: true },
+  )
+  return updatedPersona
 }
 
 function computeWorkoutPatterns(workouts: Array<Record<string, unknown>>): string {
@@ -1049,15 +1050,7 @@ async function distillChatPersona(uid: string, conversation: HubChatMessage[]): 
   )
 
   try {
-    const personaText = await buildFitnessPersonaText(uid)
-    await userRef.set(
-      {
-        fitnessPersonaText: personaText,
-        fitnessPersonaUpdatedAt: FieldValue.serverTimestamp(),
-        updatedAt: FieldValue.serverTimestamp(),
-      },
-      { merge: true },
-    )
+    await buildFitnessPersonaText(uid)
   } catch (personaErr) {
     console.error('Failed to rebuild persona after chat distillation', personaErr)
   }
@@ -1096,6 +1089,7 @@ export const chatInHub = onCall({ secrets: [geminiApiKey], invoker: 'public' }, 
       workoutEnvironmentConstraintsText?: unknown
       fitnessPersonaText?: unknown
       fitnessPersonaPreferenceText?: unknown
+      fitnessPersonaCategoryScores?: unknown
     }
     const goalText = typeof userData.goalText === 'string' ? userData.goalText.trim() : ''
     const workoutEnvironmentConstraintsText =
@@ -1112,43 +1106,15 @@ export const chatInHub = onCall({ secrets: [geminiApiKey], invoker: 'public' }, 
     const conversation = [...existingState.messages.slice(-18), { role: 'user' as const, content: userMessage }]
     const conversationContext = conversation.map((msg) => `${msg.role}: ${msg.content}`).join('\n')
 
-    const prompt =
-      `You are Flux, a persistent coaching chatbot for workout guidance.\n` +
-      `Style: calm, concise, practical, no hype.\n\n` +
-      `SYSTEM RULES:\n` +
-      `- Keep assistantMessage <= 120 words\n` +
-      `- Use evidence-based training and progressive overload while controlling fatigue\n` +
-      `- Respect constraints: time, equipment, recovery, soreness, environment\n` +
-      `- If useful, include 1-3 recommendation options in structured JSON\n` +
-      `- Do not reference specific weekdays/times\n` +
-      `- If user asks for changes, adapt recommendations directly\n\n` +
-      `GOAL & PREFERENCES:\n${goalText || '(not set)'}\n\n` +
-      `WORKOUT ENVIRONMENT CONSTRAINTS:\n${workoutEnvironmentConstraintsText || '(not set)'}\n\n` +
-      `FITNESS PERSONA:\n${persona || '(not built yet)'}\n\n` +
-      `PREFERENCE FEEDBACK PERSONA:\n${preferencePersona || '(none yet)'}\n\n` +
-      `DATE: ${formatDateContext(recommendationContext.currentDateContext)}\n\n` +
-      `RECENT WORKOUTS (last ${recommendationContext.workouts.length}, ${recommendationContext.contextCount} with notes):\n` +
-      `${formatWorkoutsAsText(recommendationContext.workouts)}\n\n` +
-      `RECENT CHAT:\n${conversationContext}\n\n` +
-      `Return ONLY valid JSON with this schema:\n` +
-      `{\n` +
-      `  "assistantMessage": "text response",\n` +
-      `  "recommendation": {\n` +
-      `    "options": [{"title":"", "type":"run", "duration":"", "intensity":"", "mainSet":"", "why":["",""]}],\n` +
-      `    "safetyChecks": ["", ""]\n` +
-      `  },\n` +
-      `  "ui": {\n` +
-      `    "showSwipeModal": true,\n` +
-      `    "swipePrompt": "short CTA for swipe mode"\n` +
-      `  },\n` +
-      `  "suggestedMessages": ["", "", ""]\n` +
-      `}\n\n` +
-      `Rules for recommendation:\n` +
-      `- recommendation may be null if user did not ask for a workout recommendation\n` +
-      `- if present, include 1-3 options with concise mobile copy\n` +
-      `- if recommendation is present, set ui.showSwipeModal true only when swipe mode should open now\n` +
-      `- ui.swipePrompt should be <= 16 words and action-oriented\n` +
-      `- suggestedMessages should be 0-5 short tappable follow-ups`
+<    const prompt = prompts.buildChatPrompt(
+      goalText,
+      workoutEnvironmentConstraintsText,
+      persona,
+      preferencePersona,
+      formatDateContext(recommendationContext.currentDateContext),
+      formatWorkoutsAsText(recommendationContext.workouts),
+      conversationContext
+    )
 
     const apiKey = requireGeminiKey()
     const genAI = new GoogleGenerativeAI(apiKey)
@@ -1284,43 +1250,14 @@ export const recommendNextWorkout = onCall(
 
       const apiKey = requireGeminiKey()
 
-      const prompt =
-        `You are Flux, an evidence-based personal trainer. Be calm, modern, and concise — no hype.\n\n` +
-        `TRAINING PRINCIPLES:\n` +
-        `- Safety first: prioritise injury prevention, sleep, and consistency\n` +
-        `- RPE (1-10): easy 5-6, moderate 6-7, challenging 7-8+; target 1-3 RIR for strength\n` +
-        `- Use Heart Rate zones and Power (where available) alongside RPE\n` +
-        `- Progressive overload: increase load, volume, or complexity systematically (+5-10% when appropriate)\n` +
-        `- Polarised training (80/20 easy/hard); avoid jumps >10% in volume or intensity week-to-week\n` +
-        `- Periodization & autoregulation: vary intensity/volume weekly; adjust to daily readiness and recent load\n` +
-        `- Fatigue management: after heavy/long sessions reduce next load; watch for soreness, poor sleep, low energy\n` +
-        `- Recovery: structured rest, sleep, nutrition (1.6-2.2g protein/kg), periodic deloads (~every 5-6 weeks)\n` +
-        `- Volume anchoring: use past workout durations/distances as baseline; respect historical modality patterns. For gym workouts, we usually expect a range of 4-6 exercises.\n` +
-        `- No scheduling: do not reference specific days (e.g. "tomorrow") or times of day\n` +
-        `- Explain the "why" briefly in 1-2 short bullets; recommend 1-3 options picking the best default from recent load\n` +
-        `- Concise copy for mobile: title ≤6 words, duration/intensity ≤10 words, mainSet ≤22 words, each why ≤14 words\n\n` +
-        `GOAL & PREFERENCES:\n${goalText || '(not set)'}\n\n` +
-        `WORKOUT ENVIRONMENT CONSTRAINTS:\n${workoutEnvironmentConstraintsText || '(not set)'}\n\n` +
-        `FITNESS PERSONA:\n${persona || '(not built yet)'}\n\n` +
-        `PREFERENCE FEEDBACK PERSONA:\n${preferencePersona || '(no recommendation feedback yet)'}\n\n` +
-        `DATE: ${formatDateContext(currentDateContext)}\n\n` +
-        `RECENT WORKOUTS (last ${workouts.length}, ${contextCount} with notes):\n` +
-        `${formatWorkoutsAsText(workouts)}\n\n` +
-        `Return ONLY valid JSON (no markdown) matching this schema:\n` +
-        `{\n` +
-        `  "options": [\n` +
-        `    {\n` +
-        `      "title": "Short energizing title",\n` +
-        `      "type": "run",\n` +
-        `      "duration": "45 minutes",\n` +
-        `      "intensity": "RPE 6-7 (Moderate)",\n` +
-        `      "mainSet": "4x2min at 85% max pace, 90sec jog recovery",\n` +
-        `      "why": ["Builds aerobic base without excessive fatigue", "Volume matches recent training load"]\n` +
-        `    }\n` +
-        `  ],\n` +
-        `  "safetyChecks": ["Reduce RPE by 1 if feeling fatigued", "Stop if HR stays elevated after effort"]\n` +
-        `}\n\n` +
-        `Generate 1-3 options balancing progressive overload and recovery. Safety checks must reflect the user's recent history.`
+      const prompt = prompts.buildRecommendationPrompt(
+        goalText,
+        workoutEnvironmentConstraintsText,
+        persona,
+        preferencePersona,
+        formatDateContext(currentDateContext),
+        formatWorkoutsAsText(workouts)
+      )
 
       const genAI = new GoogleGenerativeAI(apiKey)
       const model = genAI.getGenerativeModel({ model: 'gemini-3.1-flash-lite' })

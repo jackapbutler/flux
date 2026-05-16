@@ -8,15 +8,6 @@ type MaybeAuthError = { code?: string; message?: string }
 function formatAuthError(err: unknown): string {
   const e = err as MaybeAuthError
   const code = typeof e?.code === 'string' ? e.code : ''
-
-  if (code === 'auth/configuration-not-found') {
-    return (
-      'Google sign-in isn\'t enabled for this Firebase project yet. ' +
-      'In Firebase Console → Authentication → Sign-in method, enable Google. ' +
-      'Then add your domain in Authentication → Settings → Authorized domains.'
-    )
-  }
-
   const msg = typeof e?.message === 'string' ? e.message : String(err)
   return code ? `${code}: ${msg}` : msg
 }
@@ -30,94 +21,52 @@ export function Signup() {
 
   const signupEmail = async () => {
     try {
-      setLoading(true)
-      setError(null)
+      setLoading(true); setError(null)
       await createUserWithEmailAndPassword(auth, email.trim(), password)
       nav('/app', { replace: true })
-    } catch (e) {
-      setError(formatAuthError(e))
-    } finally {
-      setLoading(false)
-    }
+    } catch (e) { setError(formatAuthError(e)) } finally { setLoading(false) }
   }
 
   const signupGoogle = async () => {
     try {
-      setLoading(true)
-      setError(null)
+      setLoading(true); setError(null)
       await signInWithPopup(auth, googleProvider)
       nav('/app', { replace: true })
-    } catch (e) {
-      setError(formatAuthError(e))
-    } finally {
-      setLoading(false)
-    }
+    } catch (e) { setError(formatAuthError(e)) } finally { setLoading(false) }
   }
 
   return (
-    <main className="auth">
-      <section className="card authCard">
-        <h2>Create your account</h2>
-        <p className="muted">
-          Start with account setup, connect Strava, and unlock personalized next workouts.
-        </p>
+    <div className="stack" style={{ paddingTop: '40px' }}>
+      <section className="card stack" style={{ maxWidth: '400px', margin: '0 auto', width: '100%' }}>
+        <h2 style={{ textAlign: 'center' }}>Create Account</h2>
+        <p className="muted" style={{ textAlign: 'center' }}>Unlock your personal performance companion.</p>
 
-        <div className="stack" style={{ marginTop: 14 }}>
-          <button
-            type="button"
-            className="primary"
-            onClick={() => void signupGoogle()}
-            disabled={loading}
-          >
-            {loading ? 'Connecting...' : 'Continue with Google'}
+        <div className="stack" style={{ marginTop: '14px' }}>
+          <button className="secondary" onClick={() => void signupGoogle()} disabled={loading} style={{ width: '100%', gap: '12px' }}>
+            Continue with Google
           </button>
 
-          <div className="dividerText">
-            <span>or</span>
-          </div>
+          <div className="dividerText"><span>or</span></div>
 
           <label className="field">
             <span>Email</span>
-            <input
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              autoComplete="email"
-              inputMode="email"
-              disabled={loading}
-            />
+            <input value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="email" disabled={loading} />
           </label>
           <label className="field">
             <span>Password</span>
-            <input
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              type="password"
-              autoComplete="new-password"
-              minLength={6}
-              disabled={loading}
-            />
+            <input value={password} onChange={(e) => setPassword(e.target.value)} type="password" minLength={6} disabled={loading} />
           </label>
-          <button
-            type="button"
-            className="secondary"
-            onClick={() => void signupEmail()}
-            disabled={loading}
-          >
-            {loading ? 'Creating...' : 'Create account'}
+          <button className="primary" onClick={() => void signupEmail()} disabled={loading} style={{ width: '100%' }}>
+            {loading ? '...' : 'Create Account'}
           </button>
 
-          {error ? (
-            <details className="errorBox" open>
-              <summary>Sign-up error</summary>
-              <div className="error">{error}</div>
-            </details>
-          ) : null}
+          {error && <div className="errorBox"><div className="error">{error}</div></div>}
 
-          <p className="muted">
-            Already have an account? <Link to="/login">Sign in</Link>
+          <p className="muted" style={{ textAlign: 'center', fontSize: '13px' }}>
+            Already have an account? <Link to="/login" style={{ color: 'var(--accent)', fontWeight: 600 }}>Sign in</Link>
           </p>
         </div>
       </section>
-    </main>
+    </div>
   )
 }

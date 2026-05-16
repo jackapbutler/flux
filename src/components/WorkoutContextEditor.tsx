@@ -15,7 +15,6 @@ type Props = {
 
 const MAX_SUGGESTED_TAGS = 6
 const MAX_SELECTED_TAGS = 6
-const TAG_LIMIT_STATUS = `Keep it focused: up to ${MAX_SELECTED_TAGS} tags.`
 
 const DEFAULT_TAGS_BY_TYPE: Array<{ match: string[]; tags: string[] }> = [
   { match: ['run'], tags: ['Recovery', 'Easy', 'Tempo', 'Intervals', 'Long'] },
@@ -24,26 +23,10 @@ const DEFAULT_TAGS_BY_TYPE: Array<{ match: string[]; tags: string[] }> = [
   { match: ['weight', 'gym', 'strength', 'workout'], tags: ['Push', 'Pull', 'Upper', 'Lower', 'Core'] },
 ]
 
-function errorMessage(err: unknown): string {
-  if (
-    err &&
-    typeof err === 'object' &&
-    'message' in err &&
-    typeof (err as { message?: unknown }).message === 'string'
-  ) {
-    return (err as { message: string }).message
-  }
-  return String(err)
-}
-
 function normalizeTag(raw: string): string | null {
   const cleaned = raw.replace(/\s+/g, ' ').trim()
   if (!cleaned) return null
-  return cleaned
-    .split(' ')
-    .map((p) => p.charAt(0).toUpperCase() + p.slice(1).toLowerCase())
-    .join(' ')
-    .slice(0, 24)
+  return cleaned.split(' ').map((p) => p.charAt(0).toUpperCase() + p.slice(1).toLowerCase()).join(' ').slice(0, 24)
 }
 
 function uniqueTags(tags: string[]): string[] {
@@ -54,8 +37,7 @@ function uniqueTags(tags: string[]): string[] {
     if (!normalized) continue
     const key = normalized.toLowerCase()
     if (seen.has(key)) continue
-    seen.add(key)
-    out.push(normalized)
+    seen.add(key); out.push(normalized)
   }
   return out
 }
@@ -67,18 +49,9 @@ function defaultTagsForWorkout(type?: string | null): string[] {
   return matched?.tags ?? ['Push', 'Pull', 'Upper', 'Lower', 'Recovery']
 }
 
-function tagToneClass(tag: string): string {
-  const lower = tag.toLowerCase()
-  if (['push', 'pull', 'upper', 'lower', 'core', 'strength'].includes(lower)) return 'strength'
-  if (['intervals', 'tempo', 'climbing'].includes(lower)) return 'intensity'
-  if (['recovery', 'easy', 'mobility'].includes(lower)) return 'recovery'
-  return 'focus'
-}
-
 export function WorkoutContextEditor({ uid, workoutId, workoutType, initialText, initialTags, initialVoiceUrl }: Props) {
   const [text, setText] = useState(initialText ?? '')
   const [selectedTags, setSelectedTags] = useState<string[]>(() => uniqueTags(initialTags ?? []).slice(0, MAX_SELECTED_TAGS))
-  const [tagInput, setTagInput] = useState('')
   const [suggestedTags, setSuggestedTags] = useState<string[]>([])
   const [voiceUrl, setVoiceUrl] = useState<string | null>(initialVoiceUrl ?? null)
   const [saving, setSaving] = useState(false)
@@ -94,19 +67,9 @@ export function WorkoutContextEditor({ uid, workoutId, workoutType, initialText,
 
   useEffect(() => {
     const typeDefaults = defaultTagsForWorkout(workoutType)
-    let disposed = false
-
     const loadSuggestions = async () => {
       try {
-        const recentSnap = await getDocs(
-          query(
-            collection(db, 'users', uid, 'workouts'),
-            orderBy('strava.startDate', 'desc'),
-            firestoreLimit(20),
-          ),
-        )
-        if (disposed) return
-
+        const recentSnap = await getDocs(query(collection(db, 'users', uid, 'workouts'), orderBy('strava.startDate', 'desc'), firestoreLimit(20)))
         const counts = new Map<string, number>()
         for (const d of recentSnap.docs) {
           const data = d.data() as { context?: { tags?: unknown } }
@@ -114,81 +77,32 @@ export function WorkoutContextEditor({ uid, workoutId, workoutType, initialText,
           for (const raw of data.context.tags) {
             if (typeof raw !== 'string') continue
             const tag = normalizeTag(raw)
-            if (!tag) continue
-            counts.set(tag, (counts.get(tag) ?? 0) + 1)
+            if (tag) counts.set(tag, (counts.get(tag) ?? 0) + 1)
           }
         }
-
-        const personal = Array.from(counts.entries())
-          .sort((a, b) => b[1] - a[1])
-          .map(([tag]) => tag)
-
-        const merged = uniqueTags([...typeDefaults, ...personal]).slice(0, MAX_SUGGESTED_TAGS)
-        setSuggestedTags(merged.length ? merged : typeDefaults.slice(0, MAX_SUGGESTED_TAGS))
-      } catch {
-        if (!disposed) setSuggestedTags(typeDefaults.slice(0, MAX_SUGGESTED_TAGS))
-      }
+        const personal = Array.from(counts.entries()).sort((a, b) => b[1] - a[1]).map(([tag]) => tag)
+        setSuggestedTags(uniqueTags([...typeDefaults, ...personal]).slice(0, MAX_SUGGESTED_TAGS))
+      } catch { setSuggestedTags(typeDefaults.slice(0, MAX_SUGGESTED_TAGS)) }
     }
-
     void loadSuggestions()
-    return () => {
-      disposed = true
-    }
   }, [uid, workoutType])
 
-  useEffect(() => {
-    if (status !== TAG_LIMIT_STATUS) return
-    const timer = window.setTimeout(() => setStatus(null), 2500)
-    return () => window.clearTimeout(timer)
-  }, [status])
-
-  const displayedTags = useMemo(
-    () => uniqueTags([...selectedTags, ...suggestedTags]),
-    [selectedTags, suggestedTags],
-  )
-
   const toggleTag = (tag: string) => {
-    setStatus(null)
     setSelectedTags((prev) => {
       const exists = prev.some((t) => t.toLowerCase() === tag.toLowerCase())
       if (exists) return prev.filter((t) => t.toLowerCase() !== tag.toLowerCase())
-      if (prev.length >= MAX_SELECTED_TAGS) {
-        setStatus(TAG_LIMIT_STATUS)
-        return prev
-      }
+      if (prev.length >= MAX_SELECTED_TAGS) return prev
       return [...prev, tag]
     })
   }
 
-  const addTypedTag = () => {
-    const normalized = normalizeTag(tagInput)
-    if (!normalized) return
-    toggleTag(normalized)
-    setTagInput('')
-  }
-
   const saveText = async () => {
     try {
-      setError(null)
-      setStatus(null)
-      setSaving(true)
-      await updateDoc(workoutRef, {
-        context: {
-          text: text.trim(),
-          tags: selectedTags,
-          voiceUrl: voiceUrl ?? null,
-          updatedAt: serverTimestamp(),
-        },
-      })
-
-      const fn = httpsCallable(functions, 'buildFitnessPersona')
-      await fn()
+      setError(null); setStatus(null); setSaving(true)
+      await updateDoc(workoutRef, { context: { text: text.trim(), tags: selectedTags, voiceUrl: voiceUrl ?? null, updatedAt: serverTimestamp() } })
+      await httpsCallable(functions, 'buildFitnessPersona')()
       setStatus('Context saved')
-    } catch (e) {
-      setError(errorMessage(e))
-    } finally {
-      setSaving(false)
-    }
+    } catch (e) { setError(String(e)) } finally { setSaving(false) }
   }
 
   const startRecording = async () => {
@@ -197,170 +111,77 @@ export function WorkoutContextEditor({ uid, workoutId, workoutType, initialText,
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
       const mr = new MediaRecorder(stream)
       chunksRef.current = []
-
-      mr.ondataavailable = (ev) => {
-        if (ev.data && ev.data.size > 0) chunksRef.current.push(ev.data)
-      }
-
-      mr.onstop = () => {
-        stream.getTracks().forEach((t) => t.stop())
-      }
-
-      mr.start()
-      mediaRecorderRef.current = mr
-      setRecording(true)
-    } catch (e) {
-      setError(errorMessage(e))
-    }
+      mr.ondataavailable = (ev) => { if (ev.data.size > 0) chunksRef.current.push(ev.data) }
+      mr.onstop = () => { stream.getTracks().forEach((t) => t.stop()) }
+      mr.start(); mediaRecorderRef.current = mr; setRecording(true)
+    } catch (e) { setError('Mic access denied') }
   }
 
   const stopAndUpload = async () => {
     const mr = mediaRecorderRef.current
     if (!mr) return
-
     try {
-      setError(null)
-      setStatus(null)
-      setUploading(true)
-
-      const stopped = new Promise<void>((resolve) => {
-        mr.onstop = () => resolve()
-        mr.stop()
-      })
+      setError(null); setStatus(null); setUploading(true)
+      const stopped = new Promise<void>((resolve) => { mr.onstop = () => resolve(); mr.stop() })
       await stopped
-
       const blob = new Blob(chunksRef.current, { type: 'audio/webm' })
-      if (blob.size === 0) throw new Error('No audio captured')
-      const mimeType = (blob.type || 'audio/webm').split(';')[0].trim().toLowerCase()
-
-      const path = `users/${uid}/workouts/${workoutId}/context-${Date.now()}.webm`
+      const path = `users/\${uid}/workouts/\${workoutId}/context-\${Date.now()}.webm`
       const r = storageRef(storage, path)
-      await uploadBytes(r, blob, { contentType: mimeType })
-      const url = await getDownloadURL(r)
-      setVoiceUrl(url)
-
+      await uploadBytes(r, blob, { contentType: 'audio/webm' })
+      const url = await getDownloadURL(r); setVoiceUrl(url)
       setStatus('Transcribing...')
       const reader = new FileReader()
-      const base64Promise = new Promise<string>((resolve) => {
-        reader.onloadend = () => {
-          const base64 = (reader.result as string).split(',')[1]
-          resolve(base64)
-        }
-      })
+      const base64Promise = new Promise<string>((resolve) => { reader.onloadend = () => resolve((reader.result as string).split(',')[1]) })
       reader.readAsDataURL(blob)
       const audioBase64 = await base64Promise
-
-      const transcribeFn = httpsCallable<{ audio: string; mimeType?: string }, { transcription: string }>(
-        functions,
-        'transcribeWorkoutVoice',
-      )
-      const {
-        data: { transcription },
-      } = await transcribeFn({ audio: audioBase64, mimeType })
-
-      const newText = transcription
-        ? text.trim()
-          ? `${text.trim()}\n\n${transcription}`
-          : transcription
-        : text.trim()
-
-      if (transcription) {
-        setText(newText)
-      }
-
-      await updateDoc(workoutRef, {
-        context: {
-          text: newText,
-          tags: selectedTags,
-          voiceUrl: url,
-          updatedAt: serverTimestamp(),
-        },
-      })
-
-      const fn = httpsCallable(functions, 'buildFitnessPersona')
-      await fn()
-      setStatus('Voice context attached')
-
-      setRecording(false)
-      mediaRecorderRef.current = null
-    } catch (e) {
-      setError(errorMessage(e))
-    } finally {
-      setUploading(false)
-      setRecording(false)
-    }
+      const transcribeFn = httpsCallable<{ audio: string; mimeType?: string }, { transcription: string }>(functions, 'transcribeWorkoutVoice')
+      const { data: { transcription } } = await transcribeFn({ audio: audioBase64, mimeType: 'audio/webm' })
+      const newText = transcription ? (text.trim() ? `\${text.trim()}\n\n\${transcription}` : transcription) : text.trim()
+      if (transcription) setText(newText)
+      await updateDoc(workoutRef, { context: { text: newText, tags: selectedTags, voiceUrl: url, updatedAt: serverTimestamp() } })
+      await httpsCallable(functions, 'buildFitnessPersona')()
+      setStatus('Voice attached'); setRecording(false)
+    } catch (e) { setError(String(e)) } finally { setUploading(false); setRecording(false) }
   }
 
   return (
-    <div className="stack" style={{ marginTop: 10 }}>
+    <div className="stack" style={{ gap: 16 }}>
       <label className="field">
-        <span>Workout context</span>
-        <textarea
-          value={text}
-          onChange={(e) => setText(e.target.value)}
-          placeholder="How did it feel? Any pain, sleep quality, or energy notes?"
-          rows={3}
-        />
+        <span>Workout Context</span>
+        <textarea value={text} onChange={(e) => setText(e.target.value)} placeholder="Pain, sleep, or energy notes..." rows={3} />
       </label>
 
       <div className="stack" style={{ gap: 8 }}>
-        <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center' }}>
-          <span className="label">Quick tags</span>
-          <span className="muted" style={{ fontSize: 12 }}>
-            {selectedTags.length}/{MAX_SELECTED_TAGS}
-          </span>
+        <div className="row" style={{ justifyContent: 'space-between' }}>
+          <span className="rec-label">Tags</span>
+          <span className="muted small">{selectedTags.length}/{MAX_SELECTED_TAGS}</span>
         </div>
-        <div className="contextTagList">
-          {displayedTags.map((tag) => {
-            const isActive = selectedTags.some((t) => t.toLowerCase() === tag.toLowerCase())
+        <div className="row" style={{ flexWrap: 'wrap', gap: 6 }}>
+          {uniqueTags([...selectedTags, ...suggestedTags]).map((tag) => {
+            const active = selectedTags.some((t) => t.toLowerCase() === tag.toLowerCase())
             return (
-              <button
-                key={tag}
-                type="button"
-                className={`contextTag contextTag--${tagToneClass(tag)} ${isActive ? 'active' : ''}`}
-                onClick={() => toggleTag(tag)}
-              >
+              <button key={tag} className="secondary small" style={{ padding: '4px 10px', fontSize: '0.7rem', background: active ? 'var(--accent)' : 'var(--surface-2)', color: active ? 'white' : 'var(--text)', borderColor: active ? 'var(--accent)' : 'var(--border)' }} onClick={() => toggleTag(tag)}>
                 {tag}
               </button>
             )
           })}
         </div>
-        <div className="row" style={{ gap: 8 }}>
-          <input
-            value={tagInput}
-            onChange={(e) => setTagInput(e.target.value)}
-            placeholder="Add custom tag"
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') {
-                e.preventDefault()
-                addTypedTag()
-              }
-            }}
-          />
-          <button type="button" className="secondary" onClick={addTypedTag}>
-            Add
-          </button>
-        </div>
       </div>
 
       <div className="row">
-        <button type="button" onClick={() => void saveText()} disabled={saving}>
-          {saving ? 'Saving...' : 'Save context'}
+        <button className="primary" style={{ flex: 1 }} onClick={() => void saveText()} disabled={saving}>
+          {saving ? '...' : 'Save Context'}
         </button>
-
         {!recording ? (
-          <button type="button" className="secondary" onClick={() => void startRecording()}>
-            Record voice
-          </button>
+          <button className="secondary" onClick={() => void startRecording()}>Record Voice</button>
         ) : (
-          <button type="button" className="primary" onClick={() => void stopAndUpload()} disabled={uploading}>
-            {uploading ? 'Uploading...' : 'Stop + attach'}
+          <button className="primary" style={{ background: 'var(--error)' }} onClick={() => void stopAndUpload()} disabled={uploading}>
+            {uploading ? '...' : 'Stop + Attach'}
           </button>
         )}
       </div>
-
-      {error ? <div className="error">{error}</div> : null}
-      {status ? <p className="muted">{status}</p> : null}
+      {status && <p className="muted" style={{ textAlign: 'center', fontSize: '11px' }}>{status}</p>}
+      {error && <p className="error" style={{ textAlign: 'center', fontSize: '11px' }}>{error}</p>}
     </div>
   )
 }
