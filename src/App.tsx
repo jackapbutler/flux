@@ -7,6 +7,7 @@ import { Signup } from './pages/Signup'
 import { Onboarding } from './pages/Onboarding'
 import { Hub } from './pages/Hub'
 import { Log } from './pages/Log'
+import { Plans } from './pages/Plans'
 import { Protected } from './components/Protected'
 import { Shell } from './components/Shell'
 
@@ -24,6 +25,7 @@ export default function App() {
         <Route element={<Protected />}>
           <Route path="/onboarding" element={<Onboarding />} />
           <Route path="/app" element={<Hub />} />
+          <Route path="/plans" element={<Plans />} />
           <Route path="/log" element={<Log />} />
         </Route>
 
