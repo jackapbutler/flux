@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { RecommendationCard } from '../components/RecommendationCard'
 import { RecommendationChat } from '../components/RecommendationChat'
+import { WorkoutContextEditor } from '../components/WorkoutContextEditor'
 import { WorkoutIcon } from '../components/WorkoutIcon'
 import { useAuth } from '../lib/useAuth'
 import { db, functions } from '../lib/firebase'
@@ -45,6 +46,17 @@ function errorMessage(err: unknown): string {
 }
 
 const DEFAULT_GREETING = 'I’m your training coach. Tell me your goals, time, equipment, or how you feel, and I’ll tailor your next workout.'
+const DEFAULT_SWIPE_PROMPT = 'I have workout options ready. Open swipe mode to pass or save what fits today.'
+
+function formatMinutes(seconds?: number | null): string {
+  if (!seconds || seconds <= 0) return ''
+  return `${Math.round(seconds / 60)} min`
+}
+
+function formatKilometers(meters?: number | null): string {
+  if (!meters || meters <= 0) return ''
+  return `${(meters / 1000).toFixed(1)} km`
+}
 
 export function Hub() {
   const nav = useNavigate()
@@ -54,6 +66,9 @@ export function Hub() {
   const [respondingToRecommendation, setRespondingToRecommendation] = useState(false)
   const [savedWorkouts, setSavedWorkouts] = useState<SavedWorkout[]>([])
   const [expandedSavedId, setExpandedSavedId] = useState<string | null>(null)
+  const [expandedWorkoutId, setExpandedWorkoutId] = useState<string | null>(null)
+  const [showPastWorkoutsPanel, setShowPastWorkoutsPanel] = useState(false)
+  const [swipeModalOpen, setSwipeModalOpen] = useState(false)
   const [chatLoading, setChatLoading] = useState(false)
   const [sendingMessage, setSendingMessage] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -62,6 +77,10 @@ export function Hub() {
     messages: [{ role: 'assistant', content: DEFAULT_GREETING }],
     recommendation: null,
     suggestedMessages: [],
+    ui: {
+      showSwipeModal: false,
+      swipePrompt: DEFAULT_SWIPE_PROMPT,
+    },
   })
 
   const workoutsRef = useMemo(() => {
@@ -129,6 +148,10 @@ export function Hub() {
         messages: next.messages.length > 0 ? next.messages : [{ role: 'assistant', content: DEFAULT_GREETING }],
         recommendation: next.recommendation,
         suggestedMessages: next.suggestedMessages ?? [],
+        ui: {
+          showSwipeModal: Boolean(next.ui?.showSwipeModal && next.recommendation?.options?.length),
+          swipePrompt: next.ui?.swipePrompt?.trim() || DEFAULT_SWIPE_PROMPT,
+        },
       })
     } catch (e) {
       setError(errorMessage(e))
@@ -183,7 +206,12 @@ export function Hub() {
         setChatState((prev) => ({
           ...prev,
           recommendation: null,
+          ui: {
+            showSwipeModal: false,
+            swipePrompt: prev.ui?.swipePrompt || DEFAULT_SWIPE_PROMPT,
+          },
         }))
+        setSwipeModalOpen(false)
         if (!res.data.saved) {
           setStatus('Workout accepted. Saved workout list will update shortly.')
         }
@@ -197,6 +225,10 @@ export function Hub() {
                 options: prev.recommendation.options.filter((candidate) => candidate.title !== option.title),
               }
             : null,
+          ui: {
+            showSwipeModal: false,
+            swipePrompt: prev.ui?.swipePrompt || DEFAULT_SWIPE_PROMPT,
+          },
         }))
       }
     } catch (e) {
@@ -205,6 +237,23 @@ export function Hub() {
       setRespondingToRecommendation(false)
     }
   }
+
+  const hasSwipeRecommendations = Boolean(chatState.recommendation && chatState.recommendation.options.length > 0)
+
+  useEffect(() => {
+    if (chatState.ui?.showSwipeModal && hasSwipeRecommendations) {
+      setSwipeModalOpen(true)
+    }
+  }, [chatState.ui?.showSwipeModal, hasSwipeRecommendations])
+
+  useEffect(() => {
+    if (!swipeModalOpen) return
+    const onEsc = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setSwipeModalOpen(false)
+    }
+    window.addEventListener('keydown', onEsc)
+    return () => window.removeEventListener('keydown', onEsc)
+  }, [swipeModalOpen])
 
   return (
     <main className="stack">
@@ -266,6 +315,9 @@ export function Hub() {
             messages={chatState.messages}
             suggestedMessages={chatState.suggestedMessages}
             onSend={sendChatMessage}
+            onOpenSwipeModal={() => setSwipeModalOpen(true)}
+            showSwipeEntry={hasSwipeRecommendations}
+            swipePrompt={chatState.ui?.swipePrompt || DEFAULT_SWIPE_PROMPT}
             loading={chatLoading || sendingMessage}
             disabled={respondingToRecommendation}
             placeholder="Try: I have 35 minutes and only dumbbells today."
@@ -275,21 +327,153 @@ export function Hub() {
         {status ? <p className="muted" style={{ fontSize: '13px' }}>{status}</p> : null}
         {error ? <p className="error" style={{ fontSize: '13px', whiteSpace: 'pre-wrap' }}>{error}</p> : null}
 
+        {hasSwipeRecommendations ? (
+          <div className="hubSwipeLauncher">
+            <div className="muted" style={{ fontSize: '13px' }}>
+              {chatState.recommendation?.options.length} swipeable workout option
+              {chatState.recommendation?.options.length === 1 ? '' : 's'} ready from chat.
+            </div>
+            <button type="button" className="secondary" onClick={() => setSwipeModalOpen(true)}>
+              Open swipe modal
+            </button>
+          </div>
+        ) : null}
+
+        <div className="stack">
+          <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center' }}>
+            <div className="label">Past workouts context</div>
+            <button
+              type="button"
+              className="secondary"
+              style={{ minHeight: 'auto', padding: '6px 12px', fontSize: '12px' }}
+              onClick={() => setShowPastWorkoutsPanel((prev) => !prev)}
+              disabled={!connected || workouts.length === 0}
+            >
+              {showPastWorkoutsPanel ? 'Hide workouts' : 'Review + add context'}
+            </button>
+          </div>
+
+          {showPastWorkoutsPanel ? (
+            workouts.length === 0 ? (
+              <p className="muted">No workouts yet. Sync Strava to add context.</p>
+            ) : (
+              <ul className="list">
+                {workouts.slice(0, 8).map((workout) => {
+                  const expanded = expandedWorkoutId === workout.id
+                  const details = [formatKilometers(workout.strava?.distance), formatMinutes(workout.strava?.elapsedTime)]
+                    .filter(Boolean)
+                    .join(' • ')
+                  return (
+                    <li key={workout.id} className="listItem">
+                      <div className="workoutHeader">
+                        <div className="workoutMain">
+                          <div className="workoutIcon">
+                            <WorkoutIcon type={workout.strava?.type} size="small" />
+                          </div>
+                          <div>
+                            <div className="workoutName">{workout.strava?.name ?? workout.id}</div>
+                            <div className="muted">
+                              {workout.strava?.startDate ? new Date(workout.strava.startDate).toLocaleString() : ''}
+                            </div>
+                            {details ? <div className="muted">{details}</div> : null}
+                          </div>
+                        </div>
+                        <div className="stack" style={{ alignItems: 'flex-end', gap: 6 }}>
+                          <div className={`contextStatus ${workout.context?.text ? 'contextStatus--added' : 'contextStatus--missing'}`}>
+                            Context: {workout.context?.text ? 'Added' : 'Missing'}
+                          </div>
+                          <button
+                            type="button"
+                            className="secondary"
+                            style={{ minHeight: 'auto', padding: '4px 8px', fontSize: '11px' }}
+                            onClick={() => setExpandedWorkoutId(expanded ? null : workout.id)}
+                          >
+                            {expanded ? 'Close' : workout.context?.text ? 'Edit context' : 'Add context'}
+                          </button>
+                        </div>
+                      </div>
+                      {expanded && user ? (
+                        <WorkoutContextEditor
+                          uid={user.uid}
+                          workoutId={workout.id}
+                          workoutType={workout.strava?.type ?? null}
+                          initialText={workout.context?.text ?? ''}
+                          initialTags={workout.context?.tags ?? []}
+                          initialVoiceUrl={workout.context?.voiceUrl ?? null}
+                        />
+                      ) : null}
+                    </li>
+                  )
+                })}
+              </ul>
+            )
+          ) : (
+            <p className="muted" style={{ fontSize: '13px' }}>
+              Keep your coach personalized by adding context to recent workouts.
+            </p>
+          )}
+        </div>
+
+        {swipeModalOpen && hasSwipeRecommendations ? (
+          <div
+            className="hubModalOverlay"
+            role="button"
+            tabIndex={0}
+            aria-label="Close workout swipe modal"
+            onClick={() => setSwipeModalOpen(false)}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter' || event.key === ' ') {
+                event.preventDefault()
+                setSwipeModalOpen(false)
+              }
+            }}
+          >
+            <div
+              className="hubModalCard"
+              role="dialog"
+              aria-modal="true"
+              aria-label="Workout swipe modal"
+              onClick={(event) => event.stopPropagation()}
+            >
+              <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center' }}>
+                <div className="stack" style={{ gap: 2 }}>
+                  <div className="label">Swipe workout options</div>
+                  <p className="muted" style={{ margin: 0, fontSize: '12px' }}>
+                    Swipe right to save, left to pass.
+                  </p>
+                </div>
+                <button type="button" className="secondary" onClick={() => setSwipeModalOpen(false)}>
+                  Close
+                </button>
+              </div>
+              <div className="stack" style={{ gap: 16 }}>
+                {chatState.recommendation?.options.map((option, index) => (
+                  <RecommendationCard
+                    key={`${option.title}-${index}`}
+                    option={option}
+                    index={index}
+                    onPass={() => void respondToRecommendation('pass', option)}
+                    onAccept={() => void respondToRecommendation('accept', option)}
+                    disabled={respondingToRecommendation}
+                  />
+                ))}
+              </div>
+            </div>
+          </div>
+        ) : null}
+
         {chatState.recommendation && chatState.recommendation.options.length > 0 ? (
           <div className="stack" style={{ marginTop: 8 }}>
-            <div className="label">Suggested workouts from chat</div>
-            <div className="stack" style={{ gap: 16 }}>
-              {chatState.recommendation.options.map((option, index) => (
-                <RecommendationCard
-                  key={`${option.title}-${index}`}
-                  option={option}
-                  index={index}
-                  onPass={() => void respondToRecommendation('pass', option)}
-                  onAccept={() => void respondToRecommendation('accept', option)}
-                  disabled={respondingToRecommendation}
-                />
-              ))}
-            </div>
+            <div className="label">Safety checks</div>
+            {chatState.recommendation.safetyChecks?.length ? (
+              <ul className="whyList" style={{ marginTop: 6 }}>
+                {chatState.recommendation.safetyChecks.map((item, index) => (
+                  <li key={`${item}-${index}`}>{item}</li>
+                ))}
+              </ul>
+            ) : (
+              <p className="muted">No additional checks from coach chat.</p>
+            )}
           </div>
         ) : null}
 

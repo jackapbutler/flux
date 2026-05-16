@@ -5,6 +5,9 @@ type Props = {
   messages: ChatMessage[]
   suggestedMessages?: string[]
   onSend: (userMessage: string) => Promise<void>
+  onOpenSwipeModal?: () => void
+  swipePrompt?: string
+  showSwipeEntry?: boolean
   disabled?: boolean
   loading?: boolean
   placeholder?: string
@@ -14,6 +17,9 @@ export function RecommendationChat({
   messages,
   suggestedMessages = [],
   onSend,
+  onOpenSwipeModal,
+  swipePrompt,
+  showSwipeEntry = false,
   disabled,
   loading = false,
   placeholder = "Ask Flux anything about your next workout...",
@@ -69,6 +75,22 @@ export function RecommendationChat({
       </div>
 
       {error && <div className="error" style={{ marginBottom: '10px' }}>{error}</div>}
+
+      {showSwipeEntry && onOpenSwipeModal ? (
+        <div className="chatSwipeEntry">
+          <div className="muted" style={{ fontSize: '12px' }}>
+            {swipePrompt || 'I have options ready — open swipe mode to pass or save workouts.'}
+          </div>
+          <button
+            type="button"
+            className="primary"
+            disabled={loading || disabled}
+            onClick={onOpenSwipeModal}
+          >
+            Open swipe mode
+          </button>
+        </div>
+      ) : null}
 
       {suggestedMessages.length > 0 && (
         <div className="chatSuggestions">

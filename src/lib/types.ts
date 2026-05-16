@@ -60,6 +60,10 @@ export type HubChatState = {
   messages: ChatMessage[]
   recommendation: RecommendationResponse | null
   suggestedMessages: string[]
+  ui?: {
+    showSwipeModal: boolean
+    swipePrompt: string
+  }
 }
 
 export type PlanRangeUnit = 'weeks' | 'months'

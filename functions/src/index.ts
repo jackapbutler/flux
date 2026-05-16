@@ -31,6 +31,10 @@ type HubChatState = {
   messages: HubChatMessage[]
   recommendation: RecommendationResponse | null
   suggestedMessages: string[]
+  ui: {
+    showSwipeModal: boolean
+    swipePrompt: string
+  }
 }
 
 type PlanRangeUnit = 'weeks' | 'months'
@@ -337,6 +341,23 @@ function recommendationToSuggestedMessages(recommendation: RecommendationRespons
     const type = option.type ? `${option.type} ` : ''
     return `Tune a ${type}option like "${option.title}" (${option.duration}, ${option.intensity}) to suit me today.`
   })
+}
+
+function normalizeHubChatUi(
+  raw: unknown,
+  recommendation: RecommendationResponse | null,
+): { showSwipeModal: boolean; swipePrompt: string } {
+  const input = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : {}
+  const swipePromptRaw = sanitizeText(input.swipePrompt, 140)
+  const hasRecommendation = Boolean(recommendation && recommendation.options.length > 0)
+  return {
+    showSwipeModal:
+      hasRecommendation && typeof input.showSwipeModal === 'boolean'
+        ? input.showSwipeModal
+        : hasRecommendation,
+    swipePrompt:
+      swipePromptRaw || 'I have workout options ready. Open swipe mode to pass or save what fits today.',
+  }
 }
 
 function defaultWebBaseUrl(): string {
@@ -953,6 +974,7 @@ async function loadHubChatState(uid: string): Promise<HubChatState> {
   const meta = (metaSnap.data() ?? {}) as {
     recommendation?: unknown
     suggestedMessages?: unknown
+    ui?: unknown
   }
 
   const recommendation = normalizeRecommendationResponse(meta.recommendation)
@@ -963,8 +985,9 @@ async function loadHubChatState(uid: string): Promise<HubChatState> {
       .filter(Boolean)
       .slice(0, 6)
     : recommendationToSuggestedMessages(recommendation)
+  const ui = normalizeHubChatUi(meta.ui, recommendation)
 
-  return { messages, recommendation, suggestedMessages }
+  return { messages, recommendation, suggestedMessages, ui }
 }
 
 async function distillChatPersona(uid: string, conversation: HubChatMessage[]): Promise<void> {
@@ -1100,11 +1123,17 @@ export const chatInHub = onCall({ secrets: [geminiApiKey], invoker: 'public' }, 
       `    "options": [{"title":"", "type":"run", "duration":"", "intensity":"", "mainSet":"", "why":["",""]}],\n` +
       `    "safetyChecks": ["", ""]\n` +
       `  },\n` +
+      `  "ui": {\n` +
+      `    "showSwipeModal": true,\n` +
+      `    "swipePrompt": "short CTA for swipe mode"\n` +
+      `  },\n` +
       `  "suggestedMessages": ["", "", ""]\n` +
       `}\n\n` +
       `Rules for recommendation:\n` +
       `- recommendation may be null if user did not ask for a workout recommendation\n` +
       `- if present, include 1-3 options with concise mobile copy\n` +
+      `- if recommendation is present, set ui.showSwipeModal true only when swipe mode should open now\n` +
+      `- ui.swipePrompt should be <= 16 words and action-oriented\n` +
       `- suggestedMessages should be 0-5 short tappable follow-ups`
 
     const apiKey = requireGeminiKey()
@@ -1116,12 +1145,14 @@ export const chatInHub = onCall({ secrets: [geminiApiKey], invoker: 'public' }, 
     let parsedRaw: {
       assistantMessage?: unknown
       recommendation?: unknown
+      ui?: unknown
       suggestedMessages?: unknown
     }
     try {
       parsedRaw = JSON.parse(responseText) as {
         assistantMessage?: unknown
         recommendation?: unknown
+        ui?: unknown
         suggestedMessages?: unknown
       }
     } catch (jsonErr) {
@@ -1138,6 +1169,7 @@ export const chatInHub = onCall({ secrets: [geminiApiKey], invoker: 'public' }, 
     }
 
     const recommendation = normalizeRecommendationResponse(parsedRaw.recommendation)
+    const ui = normalizeHubChatUi(parsedRaw.ui, recommendation)
     const suggestedMessages = Array.isArray(parsedRaw.suggestedMessages)
       ? parsedRaw.suggestedMessages
         .filter((item): item is string => typeof item === 'string')
@@ -1164,6 +1196,7 @@ export const chatInHub = onCall({ secrets: [geminiApiKey], invoker: 'public' }, 
       db.doc(`users/${uid}/hubChat/meta`),
       {
         recommendation,
+        ui,
         suggestedMessages,
         updatedAt: FieldValue.serverTimestamp(),
       },
