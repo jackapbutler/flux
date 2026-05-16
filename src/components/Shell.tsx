@@ -1,17 +1,12 @@
 import { signOut } from 'firebase/auth'
-import { useEffect, useState } from 'react'
-import { Link, Outlet, useLocation } from 'react-router-dom'
+import { useState } from 'react'
+import { Link, Outlet } from 'react-router-dom'
 import { auth } from '../lib/firebase'
 import { useAuth } from '../lib/useAuth'
 
 export function Shell() {
   const { user } = useAuth()
   const [navOpen, setNavOpen] = useState(false)
-  const location = useLocation()
-
-  useEffect(() => {
-    setNavOpen(false)
-  }, [location])
 
   const closeNav = () => setNavOpen(false)
 

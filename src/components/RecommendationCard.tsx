@@ -36,8 +36,8 @@ export function RecommendationCard({ option, index, onPass, onAccept, disabled }
   const topReason = option.why.length > 0 ? option.why[0] : undefined
   const overviewPreview = option.mainSet.trim()
   const [dragOffset, setDragOffset] = useState(0)
+  const [dragging, setDragging] = useState(false)
   const touchStartX = useRef<number | null>(null)
-  const isDragging = useRef(false)
 
   // Calculate rotation and opacity for stamps
   const rotation = (dragOffset / MAX_DRAG_OFFSET) * 10
@@ -47,7 +47,7 @@ export function RecommendationCard({ option, index, onPass, onAccept, disabled }
   const applySwipe = () => {
     const finalOffset = dragOffset
     touchStartX.current = null
-    isDragging.current = false
+    setDragging(false)
     
     if (disabled) {
       setDragOffset(0)
@@ -66,11 +66,11 @@ export function RecommendationCard({ option, index, onPass, onAccept, disabled }
   const handleDragStart = (clientX: number) => {
     if (disabled) return
     touchStartX.current = clientX
-    isDragging.current = true
+    setDragging(true)
   }
 
   const handleDragMove = (clientX: number) => {
-    if (touchStartX.current === null || !isDragging.current || disabled) return
+    if (touchStartX.current === null || !dragging || disabled) return
     setDragOffset(clampDragOffset(clientX - touchStartX.current))
   }
 
@@ -81,26 +81,26 @@ export function RecommendationCard({ option, index, onPass, onAccept, disabled }
         transform: dragOffset 
           ? `translateX(${dragOffset}px) rotate(${rotation}deg)` 
           : 'translateX(0px) rotate(0deg)',
-        transition: isDragging.current 
+        transition: dragging
           ? 'none' 
           : 'transform 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275)',
-        cursor: isDragging.current ? 'grabbing' : (onPass || onAccept) ? 'grab' : 'default',
+        cursor: dragging ? 'grabbing' : (onPass || onAccept) ? 'grab' : 'default',
         userSelect: 'none',
-        zIndex: isDragging.current ? 100 : 1,
+        zIndex: dragging ? 100 : 1,
       }}
       onTouchStart={(e) => handleDragStart(e.touches[0]?.clientX ?? 0)}
       onTouchMove={(e) => handleDragMove(e.touches[0]?.clientX ?? 0)}
       onTouchEnd={applySwipe}
       onTouchCancel={() => {
         touchStartX.current = null
-        isDragging.current = false
+        setDragging(false)
         setDragOffset(0)
       }}
       onMouseDown={(e) => handleDragStart(e.clientX)}
       onMouseMove={(e) => handleDragMove(e.clientX)}
       onMouseUp={applySwipe}
       onMouseLeave={() => {
-        if (isDragging.current) applySwipe()
+        if (dragging) applySwipe()
       }}
     >
       <div className="swipeStamp swipeStamp--pass" style={{ opacity: passOpacity }}>

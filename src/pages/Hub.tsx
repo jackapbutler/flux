@@ -1,6 +1,6 @@
 import { collection, limit, onSnapshot, orderBy, query } from 'firebase/firestore'
 import { httpsCallable } from 'firebase/functions'
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { RecommendationCard } from '../components/RecommendationCard'
 import { RecommendationChat } from '../components/RecommendationChat'
@@ -118,7 +118,7 @@ export function Hub() {
     }
   }
 
-  const loadChatState = async () => {
+  const loadChatState = useCallback(async () => {
     if (!connected) return
     try {
       setChatLoading(true)
@@ -135,12 +135,15 @@ export function Hub() {
     } finally {
       setChatLoading(false)
     }
-  }
+  }, [connected])
 
   useEffect(() => {
     if (!connected) return
-    void loadChatState()
-  }, [connected, user?.uid])
+    const timeoutId = window.setTimeout(() => {
+      void loadChatState()
+    }, 0)
+    return () => window.clearTimeout(timeoutId)
+  }, [connected, user?.uid, loadChatState])
 
   const sendChatMessage = async (userMessage: string) => {
     if (!connected || sendingMessage) return
