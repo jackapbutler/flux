@@ -60,6 +60,7 @@ type TrainingPlanResponse = {
   safetyChecks: string[]
 }
 
+// Keep CTA prompts concise for mobile bubbles and enforce both readability (words) and payload safety (chars).
 const MAX_SWIPE_PROMPT_LENGTH = 96
 const MAX_SWIPE_PROMPT_WORDS = 16
 
@@ -347,8 +348,9 @@ function recommendationToSuggestedMessages(recommendation: RecommendationRespons
 }
 
 function limitWords(text: string, maxWords: number): string {
-  const words = text.trim().split(/\s+/).filter(Boolean)
-  if (words.length <= maxWords) return text.trim()
+  const normalized = text.trim().replace(/\s+/g, ' ')
+  const words = normalized.split(' ').filter(Boolean)
+  if (words.length <= maxWords) return normalized
   return words.slice(0, maxWords).join(' ')
 }
 

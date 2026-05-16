@@ -47,6 +47,7 @@ function errorMessage(err: unknown): string {
 
 const DEFAULT_GREETING = 'I’m your training coach. Tell me your goals, time, equipment, or how you feel, and I’ll tailor your next workout.'
 const DEFAULT_SWIPE_PROMPT = 'I have workout options ready. Open swipe mode to pass or save what fits today.'
+const MAX_PAST_WORKOUTS_IN_HUB = 8
 
 function formatMinutes(seconds?: number | null): string {
   if (!seconds || seconds <= 0) return ''
@@ -357,7 +358,7 @@ export function Hub() {
               <p className="muted">No workouts yet. Sync Strava to add context.</p>
             ) : (
               <ul className="list">
-                {workouts.slice(0, 8).map((workout) => {
+                {workouts.slice(0, MAX_PAST_WORKOUTS_IN_HUB).map((workout) => {
                   const expanded = expandedWorkoutId === workout.id
                   const details = [formatKilometers(workout.strava?.distance), formatMinutes(workout.strava?.elapsedTime)]
                     .filter(Boolean)
