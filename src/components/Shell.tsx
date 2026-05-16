@@ -56,6 +56,9 @@ export function Shell() {
               <Link to="/log" className="link" onClick={closeNav}>
                 Log
               </Link>
+              <Link to="/plans" className="link" onClick={closeNav}>
+                Plans
+              </Link>
               <Link to="/onboarding" className="link" onClick={closeNav}>
                 Settings
               </Link>

@@ -7,20 +7,9 @@ import { RecommendationChat } from '../components/RecommendationChat'
 import { WorkoutIcon } from '../components/WorkoutIcon'
 import { useAuth } from '../lib/useAuth'
 import { db, functions } from '../lib/firebase'
-import type {
-  PlanRangeUnit,
-  RecommendationResponse,
-  SavedWorkout,
-  TrainingPlanResponse,
-  Workout,
-  WorkoutOption,
-} from '../lib/types'
+import type { HubChatState, SavedWorkout, Workout, WorkoutOption } from '../lib/types'
 
 type MaybeFirebaseError = { code?: string; message?: string; details?: unknown }
-const MIN_PARSED_DURATION_MINUTES = 15
-const DEFAULT_DURATION_MINUTES = 60
-const PLAN_EVENT_BASE_HOUR_UTC = 7
-const PLAN_EVENT_OFFSET_HOURS = 2
 
 function detailsMessage(details: unknown): string | null {
   if (!details) return null
@@ -55,72 +44,25 @@ function errorMessage(err: unknown): string {
   return details ? `${core}\n${details}` : core
 }
 
-function escapeIcsText(value: string): string {
-  return value
-    .replace(/\\/g, '\\\\')
-    .replace(/\n/g, '\\n')
-    .replace(/,/g, '\\,')
-    .replace(/;/g, '\\;')
-}
-
-function parseDurationMinutes(value: string): number {
-  const lower = value.toLowerCase()
-  const hours = lower.match(/(\d+)\s*(h|hr|hrs|hour|hours)/)
-  const minutes = lower.match(/(\d+)\s*(m|min|mins|minute|minutes)/)
-  const hourMinutes = hours ? Number(hours[1]) * 60 : 0
-  const minuteMinutes = minutes ? Number(minutes[1]) : 0
-  const total = hourMinutes + minuteMinutes
-  if (total > 0) return total
-  const firstNumber = lower.match(/(\d+)/)
-  return firstNumber
-    ? Math.max(MIN_PARSED_DURATION_MINUTES, Number(firstNumber[1]))
-    : DEFAULT_DURATION_MINUTES
-}
-
-function toIcsUtcDateTime(date: string, hour: number, minute: number): string {
-  const parts = /^(\d{4})-(\d{2})-(\d{2})$/.exec(date)
-  if (!parts) return ''
-  const at = new Date(
-    Date.UTC(Number(parts[1]), Number(parts[2]) - 1, Number(parts[3]), hour, minute, 0),
-  )
-  if (Number.isNaN(at.getTime())) return ''
-  const y = at.getUTCFullYear()
-  const mo = String(at.getUTCMonth() + 1).padStart(2, '0')
-  const d = String(at.getUTCDate()).padStart(2, '0')
-  const h = String(at.getUTCHours()).padStart(2, '0')
-  const mi = String(at.getUTCMinutes()).padStart(2, '0')
-  const s = String(at.getUTCSeconds()).padStart(2, '0')
-  return `${y}${mo}${d}T${h}${mi}${s}Z`
-}
-
-function formatPlanDate(date: string): string {
-  const parsed = new Date(`${date}T00:00:00Z`)
-  if (Number.isNaN(parsed.getTime())) return date
-  return parsed.toLocaleDateString(undefined, {
-    weekday: 'short',
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric',
-  })
-}
+const DEFAULT_GREETING = 'I’m your training coach. Tell me your goals, time, equipment, or how you feel, and I’ll tailor your next workout.'
 
 export function Hub() {
   const nav = useNavigate()
   const { user, profile } = useAuth()
   const [workouts, setWorkouts] = useState<Workout[]>([])
   const [syncing, setSyncing] = useState(false)
-  const [recommending, setRecommending] = useState(false)
-  const [planning, setPlanning] = useState(false)
   const [respondingToRecommendation, setRespondingToRecommendation] = useState(false)
-  const [recommendation, setRecommendation] = useState<RecommendationResponse | null>(null)
-  const [currentOptionIndex, setCurrentOptionIndex] = useState(0)
   const [savedWorkouts, setSavedWorkouts] = useState<SavedWorkout[]>([])
-  const [plan, setPlan] = useState<TrainingPlanResponse | null>(null)
-  const [planRangeValue, setPlanRangeValue] = useState(4)
-  const [planRangeUnit, setPlanRangeUnit] = useState<PlanRangeUnit>('weeks')
   const [expandedSavedId, setExpandedSavedId] = useState<string | null>(null)
+  const [chatLoading, setChatLoading] = useState(false)
+  const [sendingMessage, setSendingMessage] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [status, setStatus] = useState<string | null>(null)
+  const [chatState, setChatState] = useState<HubChatState>({
+    messages: [{ role: 'assistant', content: DEFAULT_GREETING }],
+    recommendation: null,
+    suggestedMessages: [],
+  })
 
   const workoutsRef = useMemo(() => {
     if (!user) return null
@@ -176,133 +118,51 @@ export function Hub() {
     }
   }
 
-  const recommend = async () => {
+  const loadChatState = async () => {
+    if (!connected) return
     try {
-      setError(null)
-      setStatus(null)
-      setRecommendation(null)
-      setRecommending(true)
-      const fn = httpsCallable<undefined, RecommendationResponse>(functions, 'recommendNextWorkout')
+      setChatLoading(true)
+      const fn = httpsCallable<undefined, HubChatState>(functions, 'getHubChatState')
       const res = await fn()
-      setRecommendation(res.data)
-      setCurrentOptionIndex(0)
+      const next = res.data
+      setChatState({
+        messages: next.messages.length > 0 ? next.messages : [{ role: 'assistant', content: DEFAULT_GREETING }],
+        recommendation: next.recommendation,
+        suggestedMessages: next.suggestedMessages ?? [],
+      })
     } catch (e) {
       setError(errorMessage(e))
     } finally {
-      setRecommending(false)
+      setChatLoading(false)
     }
   }
 
-  const refineRecommendation = async (
-    userMessage: string,
-    history: Array<{ role: 'user' | 'assistant'; content: string }>,
-  ) => {
-    const fn = httpsCallable<
-      { userMessage: string; conversationHistory: Array<{ role: string; content: string }> },
-      RecommendationResponse
-    >(functions, 'refineRecommendation')
-    const res = await fn({
-      userMessage,
-      conversationHistory: history,
-    })
-    return res.data
-  }
+  useEffect(() => {
+    if (!connected) return
+    void loadChatState()
+  }, [connected, user?.uid])
 
-  const generatePlan = async () => {
+  const sendChatMessage = async (userMessage: string) => {
+    if (!connected || sendingMessage) return
     try {
       setError(null)
-      setStatus(null)
-      setPlanning(true)
-      const fn = httpsCallable<
-        { rangeValue: number; rangeUnit: PlanRangeUnit },
-        TrainingPlanResponse
-      >(functions, 'generateTrainingPlan')
-      const res = await fn({ rangeValue: planRangeValue, rangeUnit: planRangeUnit })
-      setPlan(res.data)
-      setStatus(`Generated ${res.data.sessions.length} planned sessions`)
+      setSendingMessage(true)
+      setChatState((prev) => ({
+        ...prev,
+        messages: [...prev.messages, { role: 'user', content: userMessage }],
+      }))
+      const fn = httpsCallable<{ userMessage: string }, HubChatState>(functions, 'chatInHub')
+      const res = await fn({ userMessage })
+      setChatState(res.data)
     } catch (e) {
       setError(errorMessage(e))
+      await loadChatState()
     } finally {
-      setPlanning(false)
+      setSendingMessage(false)
     }
   }
 
-  const downloadPlanAsIcs = () => {
-    if (!plan || plan.sessions.length === 0) return
-
-    const nowStamp = new Date().toISOString().replace(/[-:]/g, '').replace(/\.\d{3}Z$/, 'Z')
-    const dayOffsets = new Map<string, number>()
-
-    const events = plan.sessions
-      .map((session, idx) => {
-        const existing = dayOffsets.get(session.date) ?? 0
-        dayOffsets.set(session.date, existing + 1)
-        const startHour = PLAN_EVENT_BASE_HOUR_UTC + existing * PLAN_EVENT_OFFSET_HOURS
-        const start = toIcsUtcDateTime(session.date, startHour, 0)
-        if (!start) return null
-        const durationMinutes = parseDurationMinutes(session.duration)
-        const endDate = new Date(`${session.date}T${String(startHour).padStart(2, '0')}:00:00Z`)
-        endDate.setUTCMinutes(endDate.getUTCMinutes() + durationMinutes)
-        const end = toIcsUtcDateTime(
-          endDate.toISOString().slice(0, 10),
-          endDate.getUTCHours(),
-          endDate.getUTCMinutes(),
-        )
-        if (!end) return null
-        const summary = escapeIcsText(session.title)
-        const description = escapeIcsText(
-          [
-            `Type: ${session.type || 'workout'}`,
-            `Duration: ${session.duration}`,
-            `Intensity: ${session.intensity}`,
-            `Main set: ${session.mainSet}`,
-            session.notes ? `Notes: ${session.notes}` : '',
-          ]
-            .filter(Boolean)
-            .join('\n'),
-        )
-        return [
-          'BEGIN:VEVENT',
-          `UID:flux-${session.date}-${idx}@flux.app`,
-          `DTSTAMP:${nowStamp}`,
-          `DTSTART:${start}`,
-          `DTEND:${end}`,
-          `SUMMARY:${summary}`,
-          `DESCRIPTION:${description}`,
-          'END:VEVENT',
-        ].join('\r\n')
-      })
-      .filter(Boolean)
-      .join('\r\n')
-
-    if (!events) return
-
-    const ics = [
-      'BEGIN:VCALENDAR',
-      'VERSION:2.0',
-      'PRODID:-//Flux//Training Plan//EN',
-      'CALSCALE:GREGORIAN',
-      events,
-      'END:VCALENDAR',
-      '',
-    ].join('\r\n')
-
-    const blob = new Blob([ics], { type: 'text/calendar;charset=utf-8' })
-    const href = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = href
-    a.download = `flux-plan-${plan.range.startDateUtc}-to-${plan.range.endDateUtc}.ics`
-    document.body.appendChild(a)
-    a.click()
-    a.remove()
-    URL.revokeObjectURL(href)
-  }
-
-  const respondToRecommendation = async (decision: 'pass' | 'accept') => {
-    if (!recommendation) return
-    const option = recommendation.options[currentOptionIndex]
-    if (!option) return
-
+  const respondToRecommendation = async (decision: 'pass' | 'accept', option: WorkoutOption) => {
     try {
       setError(null)
       setStatus(null)
@@ -310,27 +170,31 @@ export function Hub() {
 
       const fn = httpsCallable<
         { decision: 'pass' | 'accept'; option: WorkoutOption },
-        { saved: boolean; preferenceSummary: string }
+        { saved: boolean }
       >(functions, 'respondToWorkoutRecommendation')
 
       const res = await fn({ decision, option })
-      const remainingCount = recommendation.options.length - (currentOptionIndex + 1)
 
       if (decision === 'accept') {
-        setRecommendation(null)
-        setCurrentOptionIndex(0)
         setStatus('Workout accepted and saved. Flux persona updated with your preference.')
-      } else if (remainingCount > 0) {
-        setCurrentOptionIndex((prev) => prev + 1)
-        setStatus('Passed. Showing another option and updating your preference profile.')
+        setChatState((prev) => ({
+          ...prev,
+          recommendation: null,
+        }))
+        if (!res.data.saved) {
+          setStatus('Workout accepted. Saved workout list will update shortly.')
+        }
       } else {
-        setRecommendation(null)
-        setCurrentOptionIndex(0)
-        setStatus('Passed. No more options left in this set. Generate a new recommendation anytime.')
-      }
-
-      if (!res.data.saved && decision === 'accept') {
-        setStatus('Workout accepted. Saved workout list will update shortly.')
+        setStatus('Passed. Flux noted your preference and can suggest alternatives in chat.')
+        setChatState((prev) => ({
+          ...prev,
+          recommendation: prev.recommendation
+            ? {
+                ...prev.recommendation,
+                options: prev.recommendation.options.filter((candidate) => candidate.title !== option.title),
+              }
+            : null,
+        }))
       }
     } catch (e) {
       setError(errorMessage(e))
@@ -339,14 +203,12 @@ export function Hub() {
     }
   }
 
-  const currentRecommendationOption = recommendation?.options[currentOptionIndex] ?? null
-
   return (
     <main className="stack">
       <section className="card hero">
         <h2>Hub</h2>
         <p className="muted">
-          Ready to train smarter? Sync Strava, add quick context, and unlock your next workout.
+          Chat with Flux for your next workout, then accept or pass options to keep improving your persona.
         </p>
         <div className="metricGrid">
           <div className="metric">
@@ -367,7 +229,7 @@ export function Hub() {
       <section className="card stack">
         <div className="row" style={{ justifyContent: 'space-between', alignItems: 'flex-start' }}>
           <div className="stack" style={{ gap: 4 }}>
-            <h2>Plan next workout</h2>
+            <h2>Coach chat</h2>
             <div className="stack" style={{ gap: 2 }}>
               <p className="muted" style={{ fontSize: '13px' }}>
                 Goal: {profile?.goalText ? `"${profile.goalText}"` : 'Not set'}
@@ -388,166 +250,43 @@ export function Hub() {
           </button>
         </div>
 
-        <div className="stack" style={{ gap: 16, marginTop: 8 }}>
-          {!connected ? (
-            <button type="button" className="secondary" onClick={() => nav('/onboarding')}>
-              Connect Strava to get started
-            </button>
-          ) : workouts.length > 0 ? (
-            <button
-              type="button"
-              className="primary"
-              style={{ padding: '16px', fontSize: '16px', width: '50%' }}
-              onClick={() => void recommend()}
-              disabled={recommending}
-            >
-              {recommending ? 'Generating...' : 'Next workout'}
-            </button>
-          ) : (
-            <p className="muted" style={{ fontSize: '13px' }}>
-              Sync your Strava history to unlock personalized recommendations.
-            </p>
-          )}
-        </div>
-
-        {status ? <p className="muted" style={{ fontSize: '13px' }}>{status}</p> : null}
-        {error ? <p className="error" style={{ fontSize: '13px' }}>{error}</p> : null}
-
-        {recommendation ? (
-          <div className="stack" style={{ marginTop: 24, paddingTop: 24, borderTop: '1px solid var(--border)' }}>
-            <div className="label">Recommended workout</div>
-
-            {currentRecommendationOption ? (
-              <>
-                <p className="muted" style={{ fontSize: '12px' }}>
-                  Option {currentOptionIndex + 1} of {recommendation.options.length}
-                </p>
-                <RecommendationCard
-                  option={currentRecommendationOption}
-                  index={currentOptionIndex}
-                  onPass={() => void respondToRecommendation('pass')}
-                  onAccept={() => void respondToRecommendation('accept')}
-                  disabled={respondingToRecommendation}
-                />
-              </>
-            ) : null}
-
-            <RecommendationChat
-              onRefine={refineRecommendation}
-              onUpdate={(next) => {
-                setRecommendation(next)
-                setCurrentOptionIndex(0)
-              }}
-              disabled={respondingToRecommendation}
-            />
-          </div>
-        ) : null}
-
-        {workouts.length > 0 && connected && (
-          <div className="stack" style={{ marginTop: 24, paddingTop: 24, borderTop: '1px solid var(--border)', gap: 16 }}>
-            <div className="stack" style={{ gap: 4 }}>
-              <div className="label" style={{ marginBottom: 0 }}>Long-range planning</div>
-              <p className="muted" style={{ fontSize: '12px' }}>Generate a multi-week schedule based on your current fitness.</p>
-            </div>
-
-            <div className="row" style={{ flexWrap: 'wrap', gap: 12 }}>
-              <div className="row" style={{ gap: 8, flex: '1 1 auto' }}>
-                <input
-                  type="number"
-                  min={1}
-                  max={planRangeUnit === 'weeks' ? 24 : 12}
-                  value={planRangeValue}
-                  onChange={(e) => {
-                    const next = Number(e.target.value)
-                    setPlanRangeValue(Number.isFinite(next) && next > 0 ? Math.floor(next) : 1)
-                    setPlan(null)
-                  }}
-                  className="planRangeInput"
-                  style={{ width: '70px' }}
-                  disabled={planning}
-                />
-                <select
-                  value={planRangeUnit}
-                  onChange={(e) => {
-                    setPlanRangeUnit(e.target.value as PlanRangeUnit)
-                    setPlan(null)
-                  }}
-                  className="planRangeSelect"
-                  disabled={planning}
-                >
-                  <option value="weeks">Weeks</option>
-                  <option value="months">Months</option>
-                </select>
-                <button
-                  type="button"
-                  className="primary"
-                  onClick={() => void generatePlan()}
-                  disabled={planning}
-                  style={{ whiteSpace: 'nowrap' }}
-                >
-                  {planning ? 'Generating...' : 'Generate'}
-                </button>
-              </div>
-
-              {plan && (
-                <button type="button" className="secondary" onClick={downloadPlanAsIcs}>
-                  Download .ics
-                </button>
-              )}
-            </div>
-          </div>
+        {!connected ? (
+          <button type="button" className="secondary" onClick={() => nav('/onboarding')}>
+            Connect Strava to get started
+          </button>
+        ) : workouts.length === 0 ? (
+          <p className="muted" style={{ fontSize: '13px' }}>
+            Sync your Strava history to unlock personalized recommendations in chat.
+          </p>
+        ) : (
+          <RecommendationChat
+            messages={chatState.messages}
+            suggestedMessages={chatState.suggestedMessages}
+            onSend={sendChatMessage}
+            loading={chatLoading || sendingMessage}
+            disabled={respondingToRecommendation}
+            placeholder="Try: I have 35 minutes and only dumbbells today."
+          />
         )}
 
-        {plan ? (
-          <div className="stack">
-            <div className="label">Long-range plan</div>
-            <p className="muted">
-              {plan.range.value} {plan.range.unit} • {plan.range.startDateUtc} to {plan.range.endDateUtc}
-            </p>
-            {plan.safetyChecks.length > 0 ? (
-              <ul className="whyList">
-                {plan.safetyChecks.map((check, idx) => (
-                  <li key={idx}>{check}</li>
-                ))}
-              </ul>
-            ) : null}
-            <ul className="planList">
-              {plan.sessions.map((session, idx) => (
-                <li key={`${session.date}-${idx}`} className="listItem">
-                  <div className="workoutHeader">
-                    <div className="workoutMain">
-                      <div className="workoutIcon">
-                        <WorkoutIcon type={session.type} size="small" />
-                      </div>
-                      <div>
-                        <div className="workoutName">{session.title}</div>
-                        <div className="muted">{formatPlanDate(session.date)}</div>
-                      </div>
-                    </div>
-                  </div>
-                  <div className="optionMetrics" style={{ marginTop: 12 }}>
-                    <div className="metricSmall">
-                      <span className="optionMetricLabel">Duration</span>
-                      <span className="optionMetricValue">{session.duration}</span>
-                    </div>
-                    <div className="metricSmall">
-                      <span className="optionMetricLabel">Intensity</span>
-                      <span className="optionMetricValue">{session.intensity}</span>
-                    </div>
-                  </div>
-                  <div className="optionSection" style={{ marginTop: 12 }}>
-                    <div className="sectionLabel">Main set</div>
-                    <div className="sectionContent">{session.mainSet}</div>
-                  </div>
-                  {session.notes ? (
-                    <div className="optionSection" style={{ marginTop: 12 }}>
-                      <div className="sectionLabel">Notes</div>
-                      <div className="sectionContent">{session.notes}</div>
-                    </div>
-                  ) : null}
-                </li>
+        {status ? <p className="muted" style={{ fontSize: '13px' }}>{status}</p> : null}
+        {error ? <p className="error" style={{ fontSize: '13px', whiteSpace: 'pre-wrap' }}>{error}</p> : null}
+
+        {chatState.recommendation && chatState.recommendation.options.length > 0 ? (
+          <div className="stack" style={{ marginTop: 8 }}>
+            <div className="label">Suggested workouts from chat</div>
+            <div className="stack" style={{ gap: 16 }}>
+              {chatState.recommendation.options.map((option, index) => (
+                <RecommendationCard
+                  key={`${option.title}-${index}`}
+                  option={option}
+                  index={index}
+                  onPass={() => void respondToRecommendation('pass', option)}
+                  onAccept={() => void respondToRecommendation('accept', option)}
+                  disabled={respondingToRecommendation}
+                />
               ))}
-            </ul>
+            </div>
           </div>
         ) : null}
 

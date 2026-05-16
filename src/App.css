@@ -423,6 +423,20 @@
   flex: 1;
 }
 
+.chatSuggestions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+.chatSuggestion {
+  min-height: auto;
+  padding: 8px 10px;
+  font-size: 12px;
+  border-radius: 999px;
+}
+
 /* Tabs */
 .tabNav {
   display: flex;

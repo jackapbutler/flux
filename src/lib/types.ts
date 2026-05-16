@@ -51,6 +51,17 @@ export type RecommendationResponse = {
   safetyChecks?: string[]
 }
 
+export type ChatMessage = {
+  role: 'user' | 'assistant'
+  content: string
+}
+
+export type HubChatState = {
+  messages: ChatMessage[]
+  recommendation: RecommendationResponse | null
+  suggestedMessages: string[]
+}
+
 export type PlanRangeUnit = 'weeks' | 'months'
 
 export type PlannedSession = {
