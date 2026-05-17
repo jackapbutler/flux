@@ -370,9 +370,9 @@ function normalizeHubChatUi(
   const hasRecommendation = Boolean(recommendation && recommendation.options.length > 0)
   return {
     showSwipeModal:
-      hasRecommendation && typeof input.showSwipeModal === 'boolean'
-        ? input.showSwipeModal
-        : hasRecommendation,
+      hasRecommendation &&
+      typeof input.showSwipeModal === 'boolean' &&
+      input.showSwipeModal,
     swipePrompt:
       swipePromptRaw || 'I have workout options ready. Open swipe mode to pass or save what fits today.',
   }
@@ -967,11 +967,10 @@ async function getRecentRecommendationContext(uid: string): Promise<{
   return { currentDateContext, workouts, contextCount }
 }
 
-async function loadHubChatMessages(uid: string, limitCount = 80): Promise<HubChatMessage[]> {
+async function loadHubChatMessages(uid: string): Promise<HubChatMessage[]> {
   const snap = await db
     .collection(`users/${uid}/hubChat`)
     .orderBy('createdAt', 'asc')
-    .limit(limitCount)
     .get()
   return snap.docs
     .map((doc) => {
@@ -1092,7 +1091,7 @@ const chatInHubImpl = async (uid: string, userMessage: string) => {
       ? userData.fitnessPersonaPreferenceText.trim()
       : ''
 
-  const conversation = [...existingState.messages.slice(-18), { role: 'user' as const, content: userMessage }]
+  const conversation = [...existingState.messages, { role: 'user' as const, content: userMessage }]
   const conversationContext = conversation.map((msg) => `${msg.role}: ${msg.content}`).join('\n')
 
   const prompt = prompts.buildChatPrompt(
