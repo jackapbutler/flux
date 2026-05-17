@@ -88,7 +88,7 @@ export function Hub() {
     if (!connected) return
     try {
       setChatLoading(true)
-      const fn = httpsCallable<undefined, HubChatState>(functions, 'getHubChatState')
+      const fn = httpsCallable<undefined, HubChatState>(functions, 'getHubChatStateCallable')
       const res = await fn()
       setChatState({
         messages: res.data.messages.length > 0 ? res.data.messages : [{ role: 'assistant', content: DEFAULT_GREETING }],
@@ -109,7 +109,7 @@ export function Hub() {
     try {
       setError(null); setSendingMessage(true)
       setChatState((prev) => ({ ...prev, messages: [...prev.messages, { role: 'user', content: userMessage }] }))
-      const fn = httpsCallable<{ userMessage: string }, HubChatState>(functions, 'chatInHub')
+      const fn = httpsCallable<{ userMessage: string }, HubChatState>(functions, 'chatInHubCallable')
       const res = await fn({ userMessage })
       setChatState(res.data)
       if (res.data.ui?.showSwipeModal) setSwipeModalOpen(true)
@@ -191,7 +191,7 @@ export function Hub() {
               </div>
               <button className="secondary small" onClick={() => setSwipeModalOpen(false)}>Close</button>
             </div>
-            
+
             <div className="stack" style={{ gap: 16 }}>
               {chatState.recommendation?.options.map((option, idx) => (
                 <RecommendationCard
@@ -241,7 +241,7 @@ export function Hub() {
           <div style={{ fontSize: '1.5rem', fontWeight: 800, color: 'var(--text-h)' }}>{workouts.length}</div>
         </div>
         <div className="card stack" style={{ padding: '16px' }}>
-          <div className="rec-label">Nuance</div>
+          <div className="rec-label">Context Added</div>
           <div style={{ fontSize: '1.5rem', fontWeight: 800, color: 'var(--text-h)' }}>{workouts.filter(w => w.context?.text).length}</div>
         </div>
       </section>

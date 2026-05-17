@@ -1,4 +1,5 @@
 import { onCall, onRequest, HttpsError } from 'firebase-functions/v2/https'
+import cors from 'cors'
 import { defineSecret, defineString } from 'firebase-functions/params'
 import { GoogleGenerativeAI } from '@google/generative-ai'
 import { initializeApp } from 'firebase-admin/app'
@@ -7,6 +8,8 @@ import crypto from 'node:crypto'
 import * as prompts from './prompts'
 
 initializeApp()
+
+const corsMiddleware = cors({ origin: true })
 
 // Structured recommendation types
 export type WorkoutOption = {
@@ -1057,10 +1060,129 @@ async function distillChatPersona(uid: string, conversation: HubChatMessage[]): 
   }
 }
 
+// Chat functions with explicit CORS support
+const getHubChatStateImpl = async (uid: string) => {
+  return await loadHubChatState(uid)
+}
+
+const chatInHubImpl = async (uid: string, userMessage: string) => {
+  const userRef = db.doc(`users/${uid}`)
+  const [existingState, userSnap, recommendationContext] = await Promise.all([
+    loadHubChatState(uid),
+    userRef.get(),
+    getRecentRecommendationContext(uid),
+  ])
+
+  const userData = (userSnap.data() ?? {}) as {
+    goalText?: unknown
+    workoutEnvironmentConstraintsText?: unknown
+    fitnessPersonaText?: unknown
+    fitnessPersonaPreferenceText?: unknown
+    fitnessPersonaCategoryScores?: unknown
+  }
+  const goalText = typeof userData.goalText === 'string' ? userData.goalText.trim() : ''
+  const workoutEnvironmentConstraintsText =
+    typeof userData.workoutEnvironmentConstraintsText === 'string'
+      ? userData.workoutEnvironmentConstraintsText.trim()
+      : ''
+  const persona =
+    typeof userData.fitnessPersonaText === 'string' ? userData.fitnessPersonaText.trim() : ''
+  const preferencePersona =
+    typeof userData.fitnessPersonaPreferenceText === 'string'
+      ? userData.fitnessPersonaPreferenceText.trim()
+      : ''
+
+  const conversation = [...existingState.messages.slice(-18), { role: 'user' as const, content: userMessage }]
+  const conversationContext = conversation.map((msg) => `${msg.role}: ${msg.content}`).join('\n')
+
+  const prompt = prompts.buildChatPrompt(
+    goalText,
+    workoutEnvironmentConstraintsText,
+    persona,
+    preferencePersona,
+    formatDateContext(recommendationContext.currentDateContext),
+    formatWorkoutsAsText(recommendationContext.workouts),
+    conversationContext
+  )
+
+  const apiKey = requireGeminiKey()
+  const genAI = new GoogleGenerativeAI(apiKey)
+  const model = genAI.getGenerativeModel({ model: 'gemini-3.1-flash-lite' })
+  const result = await model.generateContent(prompt)
+  const responseText = unwrapJsonCodeFence(result.response.text())
+
+  let parsedRaw: {
+    assistantMessage?: unknown
+    recommendation?: unknown
+    ui?: unknown
+    suggestedMessages?: unknown
+  }
+  try {
+    parsedRaw = JSON.parse(responseText) as {
+      assistantMessage?: unknown
+      recommendation?: unknown
+      ui?: unknown
+      suggestedMessages?: unknown
+    }
+  } catch (jsonErr) {
+    console.error('JSON parse failed in chatInHub', { responseText, jsonErr })
+    throw new HttpsError(
+      'internal',
+      `Failed to parse chat JSON: ${(jsonErr as Error)?.message || 'Invalid format'}. Raw snippet: ${responseText.substring(0, 120)}`,
+    )
+  }
+
+  const assistantMessage = sanitizeText(parsedRaw.assistantMessage, 1500)
+  if (!assistantMessage) {
+    throw new HttpsError('internal', 'Chat response was missing assistantMessage')
+  }
+
+  const recommendation = normalizeRecommendationResponse(parsedRaw.recommendation)
+  const ui = normalizeHubChatUi(parsedRaw.ui, recommendation)
+  const suggestedMessages = Array.isArray(parsedRaw.suggestedMessages)
+    ? parsedRaw.suggestedMessages
+      .filter((item): item is string => typeof item === 'string')
+      .map((item) => sanitizeText(item, 120))
+      .filter(Boolean)
+      .slice(0, 6)
+    : recommendationToSuggestedMessages(recommendation)
+
+  const hubMessagesRef = db.collection(`users/${uid}/hubChat/messages`)
+  const batch = db.batch()
+  batch.set(hubMessagesRef.doc(), {
+    role: 'user',
+    content: userMessage,
+    createdAt: FieldValue.serverTimestamp(),
+    updatedAt: FieldValue.serverTimestamp(),
+  })
+  batch.set(hubMessagesRef.doc(), {
+    role: 'assistant',
+    content: assistantMessage,
+    createdAt: FieldValue.serverTimestamp(),
+    updatedAt: FieldValue.serverTimestamp(),
+  })
+  batch.set(
+    db.doc(`users/${uid}/hubChat/meta`),
+    {
+      recommendation,
+      ui,
+      suggestedMessages,
+      updatedAt: FieldValue.serverTimestamp(),
+    },
+    { merge: true },
+  )
+  await batch.commit()
+
+  const fullConversation = [...conversation, { role: 'assistant' as const, content: assistantMessage }]
+  await distillChatPersona(uid, fullConversation)
+
+  return await loadHubChatState(uid)
+}
+
 export const getHubChatState = onCall({ invoker: 'public' }, async (req) => {
   try {
     if (!req.auth) throw new HttpsError('unauthenticated', 'Sign in')
-    return await loadHubChatState(req.auth.uid)
+    return await getHubChatStateImpl(req.auth.uid)
   } catch (e) {
     console.error('getHubChatState failed', e)
     if (e instanceof HttpsError) throw e
@@ -1077,118 +1199,7 @@ export const chatInHub = onCall({ secrets: [geminiApiKey], invoker: 'public' }, 
       throw new HttpsError('invalid-argument', 'User message required')
     }
 
-    const uid = req.auth.uid
-    const userRef = db.doc(`users/${uid}`)
-    const [existingState, userSnap, recommendationContext] = await Promise.all([
-      loadHubChatState(uid),
-      userRef.get(),
-      getRecentRecommendationContext(uid),
-    ])
-
-    const userData = (userSnap.data() ?? {}) as {
-      goalText?: unknown
-      workoutEnvironmentConstraintsText?: unknown
-      fitnessPersonaText?: unknown
-      fitnessPersonaPreferenceText?: unknown
-      fitnessPersonaCategoryScores?: unknown
-    }
-    const goalText = typeof userData.goalText === 'string' ? userData.goalText.trim() : ''
-    const workoutEnvironmentConstraintsText =
-      typeof userData.workoutEnvironmentConstraintsText === 'string'
-        ? userData.workoutEnvironmentConstraintsText.trim()
-        : ''
-    const persona =
-      typeof userData.fitnessPersonaText === 'string' ? userData.fitnessPersonaText.trim() : ''
-    const preferencePersona =
-      typeof userData.fitnessPersonaPreferenceText === 'string'
-        ? userData.fitnessPersonaPreferenceText.trim()
-        : ''
-
-    const conversation = [...existingState.messages.slice(-18), { role: 'user' as const, content: userMessage }]
-    const conversationContext = conversation.map((msg) => `${msg.role}: ${msg.content}`).join('\n')
-
-    const prompt = prompts.buildChatPrompt(
-      goalText,
-      workoutEnvironmentConstraintsText,
-      persona,
-      preferencePersona,
-      formatDateContext(recommendationContext.currentDateContext),
-      formatWorkoutsAsText(recommendationContext.workouts),
-      conversationContext
-    )
-
-    const apiKey = requireGeminiKey()
-    const genAI = new GoogleGenerativeAI(apiKey)
-    const model = genAI.getGenerativeModel({ model: 'gemini-3.1-flash-lite' })
-    const result = await model.generateContent(prompt)
-    const responseText = unwrapJsonCodeFence(result.response.text())
-
-    let parsedRaw: {
-      assistantMessage?: unknown
-      recommendation?: unknown
-      ui?: unknown
-      suggestedMessages?: unknown
-    }
-    try {
-      parsedRaw = JSON.parse(responseText) as {
-        assistantMessage?: unknown
-        recommendation?: unknown
-        ui?: unknown
-        suggestedMessages?: unknown
-      }
-    } catch (jsonErr) {
-      console.error('JSON parse failed in chatInHub', { responseText, jsonErr })
-      throw new HttpsError(
-        'internal',
-        `Failed to parse chat JSON: ${(jsonErr as Error)?.message || 'Invalid format'}. Raw snippet: ${responseText.substring(0, 120)}`,
-      )
-    }
-
-    const assistantMessage = sanitizeText(parsedRaw.assistantMessage, 1500)
-    if (!assistantMessage) {
-      throw new HttpsError('internal', 'Chat response was missing assistantMessage')
-    }
-
-    const recommendation = normalizeRecommendationResponse(parsedRaw.recommendation)
-    const ui = normalizeHubChatUi(parsedRaw.ui, recommendation)
-    const suggestedMessages = Array.isArray(parsedRaw.suggestedMessages)
-      ? parsedRaw.suggestedMessages
-        .filter((item): item is string => typeof item === 'string')
-        .map((item) => sanitizeText(item, 120))
-        .filter(Boolean)
-        .slice(0, 6)
-      : recommendationToSuggestedMessages(recommendation)
-
-    const hubMessagesRef = db.collection(`users/${uid}/hubChat/messages`)
-    const batch = db.batch()
-    batch.set(hubMessagesRef.doc(), {
-      role: 'user',
-      content: userMessage,
-      createdAt: FieldValue.serverTimestamp(),
-      updatedAt: FieldValue.serverTimestamp(),
-    })
-    batch.set(hubMessagesRef.doc(), {
-      role: 'assistant',
-      content: assistantMessage,
-      createdAt: FieldValue.serverTimestamp(),
-      updatedAt: FieldValue.serverTimestamp(),
-    })
-    batch.set(
-      db.doc(`users/${uid}/hubChat/meta`),
-      {
-        recommendation,
-        ui,
-        suggestedMessages,
-        updatedAt: FieldValue.serverTimestamp(),
-      },
-      { merge: true },
-    )
-    await batch.commit()
-
-    const fullConversation = [...conversation, { role: 'assistant' as const, content: assistantMessage }]
-    await distillChatPersona(uid, fullConversation)
-
-    return await loadHubChatState(uid)
+    return await chatInHubImpl(req.auth.uid, userMessage)
   } catch (e) {
     console.error('chatInHub failed', e)
     if (e instanceof HttpsError) throw e
@@ -1876,4 +1887,46 @@ export const stravaSyncRecent = onCall(
       throw new HttpsError('internal', (e as Error)?.message || 'Unknown error')
     }
   },
+)
+
+// Callable wrapper handlers that support CORS
+import type { CallableRequest } from 'firebase-functions/v2/https'
+import { getAuth } from 'firebase-admin/auth'
+
+export const getHubChatStateCallable = onCall(
+  { invoker: 'public', cors: ['*'] },
+  async (request: CallableRequest<unknown>) => {
+    try {
+      if (!request.auth) {
+        throw new HttpsError('unauthenticated', 'Must be authenticated')
+      }
+      return await getHubChatStateImpl(request.auth.uid)
+    } catch (e) {
+      console.error('getHubChatStateCallable failed', e)
+      if (e instanceof HttpsError) throw e
+      throw new HttpsError('internal', (e as Error)?.message || 'Unknown error')
+    }
+  }
+)
+
+export const chatInHubCallable = onCall(
+  { invoker: 'public', secrets: [geminiApiKey], cors: ['*'] },
+  async (request: CallableRequest<{ userMessage: string }>) => {
+    try {
+      if (!request.auth) {
+        throw new HttpsError('unauthenticated', 'Must be authenticated')
+      }
+
+      const userMessage = sanitizeText(request.data?.userMessage, 800)
+      if (!userMessage) {
+        throw new HttpsError('invalid-argument', 'userMessage is required')
+      }
+
+      return await chatInHubImpl(request.auth.uid, userMessage)
+    } catch (e) {
+      console.error('chatInHubCallable failed', e)
+      if (e instanceof HttpsError) throw e
+      throw new HttpsError('internal', (e as Error)?.message || 'Unknown error')
+    }
+  }
 )

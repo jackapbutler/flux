@@ -125,7 +125,7 @@ export function WorkoutContextEditor({ uid, workoutId, workoutType, initialText,
       const stopped = new Promise<void>((resolve) => { mr.onstop = () => resolve(); mr.stop() })
       await stopped
       const blob = new Blob(chunksRef.current, { type: 'audio/webm' })
-      const path = `users/\${uid}/workouts/\${workoutId}/context-\${Date.now()}.webm`
+       const path = `users/${uid}/workouts/${workoutId}/context-${Date.now()}.webm`
       const r = storageRef(storage, path)
       await uploadBytes(r, blob, { contentType: 'audio/webm' })
       const url = await getDownloadURL(r); setVoiceUrl(url)
