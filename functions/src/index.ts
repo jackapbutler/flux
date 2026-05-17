@@ -969,7 +969,7 @@ async function getRecentRecommendationContext(uid: string): Promise<{
 
 async function loadHubChatMessages(uid: string, limitCount = 80): Promise<HubChatMessage[]> {
   const snap = await db
-    .collection(`users/${uid}/hubChat/messages`)
+    .collection(`users/${uid}/hubChat`)
     .orderBy('createdAt', 'asc')
     .limit(limitCount)
     .get()
@@ -1147,7 +1147,7 @@ const chatInHubImpl = async (uid: string, userMessage: string) => {
       .slice(0, 6)
     : recommendationToSuggestedMessages(recommendation)
 
-  const hubMessagesRef = db.collection(`users/${uid}/hubChat/messages`)
+  const hubMessagesRef = db.collection(`users/${uid}/hubChat`)
   const batch = db.batch()
   batch.set(hubMessagesRef.doc(), {
     role: 'user',
