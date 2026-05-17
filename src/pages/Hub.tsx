@@ -33,13 +33,20 @@ function errorMessage(err: unknown): string {
   return details ? `${core}\n${details}` : core
 }
 
-const DEFAULT_GREETING = 'Coach Flux here. Your performance profile is updated. How are we tackling today?'
+const DEFAULT_GREETING = 'Coach Flux here. What do you want to work on today?'
+
+function mergeHubMessages(messages: HubChatState['messages'], hiddenMessages: HubChatState['messages']): HubChatState['messages'] {
+  const visibleMessages = messages.filter((message) => message.visible !== false)
+  const baseMessages = visibleMessages.length > 0
+    ? visibleMessages
+    : [{ role: 'assistant' as const, content: DEFAULT_GREETING, visible: true }]
+  return [...baseMessages, ...hiddenMessages.filter((message) => message.visible === false)]
+}
 
 export function Hub() {
   const nav = useNavigate()
   const { user, profile } = useAuth()
   const [workouts, setWorkouts] = useState<Workout[]>([])
-  const [syncing, setSyncing] = useState(false)
   const [respondingToRecommendation, setRespondingToRecommendation] = useState(false)
   const [savedWorkouts, setSavedWorkouts] = useState<SavedWorkout[]>([])
   const [expandedSavedId, setExpandedSavedId] = useState<string | null>(null)
@@ -75,43 +82,51 @@ export function Hub() {
 
   const connected = Boolean(profile?.strava?.connected)
 
-  const sync = async () => {
-    try {
-      setError(null); setStatus(null); setSyncing(true)
-      const fn = httpsCallable<{ buildPersona?: boolean }, { upserted: number }>(functions, 'stravaSyncRecent')
-      const res = await fn({ buildPersona: true })
-      setStatus(`Synced ${res.data.upserted} workouts`)
-    } catch (e) { setError(errorMessage(e)) } finally { setSyncing(false) }
-  }
-
   const loadChatState = useCallback(async () => {
     if (!connected) return
     try {
       setChatLoading(true)
       const fn = httpsCallable<undefined, HubChatState>(functions, 'getHubChatStateCallable')
       const res = await fn()
-      setChatState({
-        messages: res.data.messages.length > 0 ? res.data.messages : [{ role: 'assistant', content: DEFAULT_GREETING }],
-        recommendation: res.data.recommendation,
-        suggestedMessages: res.data.suggestedMessages ?? [],
-        ui: res.data.ui
-      })
+      setChatState((prev) => ({
+        ...res.data,
+        messages: mergeHubMessages(res.data.messages, prev.messages),
+      }))
       if (res.data.ui?.showSwipeModal) setSwipeModalOpen(true)
     } catch (e) { setError(errorMessage(e)) } finally { setChatLoading(false) }
   }, [connected])
+
+  const clearChatState = useCallback(async () => {
+    try {
+      const fn = httpsCallable<undefined, { cleared: number }>(functions, 'clearHubChatStateCallable')
+      await fn()
+    } catch (e) {
+      console.error('Failed to clear Hub chat state', e)
+    }
+  }, [])
 
   useEffect(() => {
     if (connected) void loadChatState()
   }, [connected, user?.uid, loadChatState])
 
+  useEffect(() => {
+    return () => {
+      if (connected) void clearChatState()
+    }
+  }, [connected, clearChatState])
+
   const sendChatMessage = async (userMessage: string) => {
     if (!connected || sendingMessage) return
     try {
       setError(null); setSendingMessage(true)
-      setChatState((prev) => ({ ...prev, messages: [...prev.messages, { role: 'user', content: userMessage }] }))
-      const fn = httpsCallable<{ userMessage: string }, HubChatState>(functions, 'chatInHubCallable')
-      const res = await fn({ userMessage })
-      setChatState(res.data)
+      const history = chatState.messages
+      setChatState((prev) => ({ ...prev, messages: [...prev.messages, { role: 'user', content: userMessage, visible: true }] }))
+      const fn = httpsCallable<{ userMessage: string; conversationHistory?: HubChatState['messages'] }, HubChatState>(functions, 'chatInHubCallable')
+      const res = await fn({ userMessage, conversationHistory: history })
+      setChatState((prev) => ({
+        ...res.data,
+        messages: mergeHubMessages(res.data.messages, prev.messages),
+      }))
       if (res.data.ui?.showSwipeModal) setSwipeModalOpen(true)
     } catch (e) { setError(errorMessage(e)); void loadChatState() } finally { setSendingMessage(false) }
   }
@@ -121,37 +136,38 @@ export function Hub() {
       setError(null); setStatus(null); setRespondingToRecommendation(true)
       const fn = httpsCallable<{ decision: 'pass' | 'accept'; option: WorkoutOption }, { saved: boolean }>(functions, 'respondToWorkoutRecommendation')
       await fn({ decision, option })
-      if (decision === 'accept') {
-        setStatus('Plan accepted'); setChatState((prev) => ({ ...prev, recommendation: null })); setSwipeModalOpen(false)
-      } else {
-        setStatus('Passed'); setChatState((prev) => {
-          const nextOptions = prev.recommendation ? prev.recommendation.options.filter((o) => o.title !== option.title) : []
-          if (nextOptions.length === 0) setSwipeModalOpen(false)
-          return {
-            ...prev,
-            recommendation: prev.recommendation ? { ...prev.recommendation, options: nextOptions } : null
-          }
-        })
-      }
+      const feedbackMessage = `${decision === 'accept' ? 'Accepted' : 'Passed'}: ${option.title}`
+      setChatState((prev) => ({
+        ...prev,
+        messages: [...prev.messages, { role: 'user', content: feedbackMessage, visible: false }],
+        recommendation:
+          decision === 'accept'
+            ? null
+            : prev.recommendation
+              ? { ...prev.recommendation, options: prev.recommendation.options.filter((o) => o.title !== option.title) }
+              : null,
+      }))
+      setStatus(decision === 'accept' ? 'Plan accepted' : 'Passed')
+      setSwipeModalOpen(false)
     } catch (e) { setError(errorMessage(e)) } finally { setRespondingToRecommendation(false) }
+  }
+
+  const deleteSavedWorkout = async (savedWorkoutId: string) => {
+    try {
+      setError(null); setStatus(null)
+      const fn = httpsCallable<{ savedWorkoutId: string }, { deleted: boolean }>(functions, 'deleteSavedWorkoutCallable')
+      await fn({ savedWorkoutId })
+      if (expandedSavedId === savedWorkoutId) setExpandedSavedId(null)
+      setStatus('Removed saved workout')
+    } catch (e) {
+      setError(errorMessage(e))
+    }
   }
 
   const hasSwipeRecommendations = Boolean(chatState.recommendation && chatState.recommendation.options.length > 0)
 
   return (
     <div className="stack">
-      <section className="card hero stack">
-        <div className="row" style={{ justifyContent: 'space-between' }}>
-          <h2 style={{ fontSize: '1.25rem' }}>Coach's Briefing</h2>
-          <button className="secondary small" onClick={() => void sync()} disabled={syncing} style={{ padding: '6px 12px' }}>
-            {syncing ? '...' : 'Sync Now'}
-          </button>
-        </div>
-        <p className="muted" style={{ color: 'rgba(255,255,255,0.7)', margin: 0 }}>
-          {connected ? "Your profile is primed. I've noted your recent load and drafted proactive adjustments." : "Connect Strava to unlock performance coaching."}
-        </p>
-      </section>
-
       <section className="stack">
         <div className="row" style={{ justifyContent: 'space-between' }}>
           <h2 style={{ fontSize: '1.1rem' }}>Coach Flux</h2>
@@ -164,14 +180,8 @@ export function Hub() {
           <button className="primary" onClick={() => nav('/onboarding')} style={{ width: '100%' }}>Connect Strava</button>
         ) : (
           <div className="stack" style={{ gap: 12 }}>
-            {hasSwipeRecommendations && (
-              <div className="swipe-launcher">
-                <div className="muted small">{chatState.ui?.swipePrompt || 'I have workout options ready.'}</div>
-                <button className="primary small" onClick={() => setSwipeModalOpen(true)}>Open Swipe Mode</button>
-              </div>
-            )}
             <RecommendationChat
-              messages={chatState.messages}
+              messages={chatState.messages.filter((message) => message.visible !== false)}
               suggestedMessages={chatState.suggestedMessages}
               onSend={sendChatMessage}
               loading={chatLoading || sendingMessage}
@@ -186,7 +196,7 @@ export function Hub() {
           <div className="modal-card stack" onClick={(e) => e.stopPropagation()}>
             <div className="row" style={{ justifyContent: 'space-between' }}>
               <div className="stack" style={{ gap: 2 }}>
-                <h3 style={{ fontSize: '1.1rem' }}>Swipe Workouts</h3>
+                <h3 style={{ fontSize: '1.1rem' }}>Workout Cards</h3>
                 <p className="muted small" style={{ margin: 0 }}>Review and save what fits today.</p>
               </div>
               <button className="secondary small" onClick={() => setSwipeModalOpen(false)}>Close</button>
@@ -257,9 +267,19 @@ export function Hub() {
                     <div className="rec-icon" style={{ width: '32px', height: '32px' }}><WorkoutIcon type={sw.option.type} /></div>
                     <div className="rec-value" style={{ fontSize: '0.9rem' }}>{sw.option.title}</div>
                   </div>
-                  <button className="secondary small" onClick={() => setExpandedSavedId(expandedSavedId === sw.id ? null : sw.id)}>
-                    {expandedSavedId === sw.id ? 'Close' : 'View'}
-                  </button>
+                  <div className="row" style={{ gap: 6 }}>
+                    <button
+                      className="secondary small"
+                      aria-label={`Delete ${sw.option.title}`}
+                      onClick={() => void deleteSavedWorkout(sw.id)}
+                      style={{ width: '32px', height: '32px', padding: 0 }}
+                    >
+                      🗑
+                    </button>
+                    <button className="secondary small" onClick={() => setExpandedSavedId(expandedSavedId === sw.id ? null : sw.id)}>
+                      {expandedSavedId === sw.id ? 'Close' : 'View'}
+                    </button>
+                  </div>
                 </div>
                 {expandedSavedId === sw.id && (
                   <div className="stack" style={{ marginTop: '12px', paddingTop: '12px', borderTop: '1px solid var(--border)', gap: 12 }}>

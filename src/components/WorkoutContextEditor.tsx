@@ -100,7 +100,6 @@ export function WorkoutContextEditor({ uid, workoutId, workoutType, initialText,
     try {
       setError(null); setStatus(null); setSaving(true)
       await updateDoc(workoutRef, { context: { text: text.trim(), tags: selectedTags, voiceUrl: voiceUrl ?? null, updatedAt: serverTimestamp() } })
-      await httpsCallable(functions, 'buildFitnessPersona')()
       setStatus('Context saved')
     } catch (e) { setError(String(e)) } finally { setSaving(false) }
   }
@@ -139,7 +138,6 @@ export function WorkoutContextEditor({ uid, workoutId, workoutType, initialText,
       const newText = transcription ? (text.trim() ? `\${text.trim()}\n\n\${transcription}` : transcription) : text.trim()
       if (transcription) setText(newText)
       await updateDoc(workoutRef, { context: { text: newText, tags: selectedTags, voiceUrl: url, updatedAt: serverTimestamp() } })
-      await httpsCallable(functions, 'buildFitnessPersona')()
       setStatus('Voice attached'); setRecording(false)
     } catch (e) { setError(String(e)) } finally { setUploading(false); setRecording(false) }
   }

@@ -66,8 +66,8 @@ export function Onboarding() {
   const syncAndPersona = async () => {
     try {
       setError(null); setSyncing(true)
-      const fn = httpsCallable<{ buildPersona: boolean }, { upserted: number }>(functions, 'stravaSyncRecent')
-      await fn({ buildPersona: true })
+      const fn = httpsCallable<undefined, { upserted: number }>(functions, 'stravaSyncRecent')
+      await fn()
     } catch (e) { setError(errorMessage(e)) } finally { setSyncing(false) }
   }
 

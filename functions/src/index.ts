@@ -192,6 +192,33 @@ function parseRecommendationPreferences(raw: unknown): RecommendationPreferences
   }
 }
 
+function summarizeTopCategory(map: Record<string, number>): string | null {
+  const entries = Object.entries(map).sort((a, b) => b[1] - a[1])
+  const top = entries[0]
+  return top ? `${top[0]} (${top[1]})` : null
+}
+
+function buildRecommendationFeedbackSummary(preferences: RecommendationPreferences): string {
+  const acceptedType = summarizeTopCategory(preferences.byType.accepted)
+  const passedType = summarizeTopCategory(preferences.byType.passed)
+  const acceptedIntensity = summarizeTopCategory(preferences.byIntensity.accepted)
+  const passedIntensity = summarizeTopCategory(preferences.byIntensity.passed)
+  const acceptedDuration = summarizeTopCategory(preferences.byDuration.accepted)
+  const passedDuration = summarizeTopCategory(preferences.byDuration.passed)
+
+  const parts = [
+    `Accepted ${preferences.acceptedCount}, passed ${preferences.passedCount}.`,
+    acceptedType ? `Most accepted type: ${acceptedType}.` : null,
+    passedType ? `Most passed type: ${passedType}.` : null,
+    acceptedIntensity ? `Most accepted intensity: ${acceptedIntensity}.` : null,
+    passedIntensity ? `Most passed intensity: ${passedIntensity}.` : null,
+    acceptedDuration ? `Most accepted duration: ${acceptedDuration}.` : null,
+    passedDuration ? `Most passed duration: ${passedDuration}.` : null,
+  ].filter(Boolean)
+
+  return parts.join(' ')
+}
+
 function normalizePreferenceKey(raw: string): string {
   const normalized = raw
     .toLowerCase()
@@ -274,27 +301,6 @@ function intensityBucket(intensity: string): string {
     return 'hard'
   }
   return 'unknown'
-}
-
-function summarizeTopCategory(map: Record<string, number>): string | null {
-  const sorted = Object.entries(map).sort((a, b) => b[1] - a[1])
-  if (sorted.length === 0) return null
-  const top = sorted[0]
-  if (!top) return null
-  return `${top[0]} (${top[1]})`
-}
-
-function buildPreferenceSummary(preferences: RecommendationPreferences): string {
-  const typeTop = summarizeTopCategory(preferences.byType.accepted)
-  const intensityTop = summarizeTopCategory(preferences.byIntensity.accepted)
-  const durationTop = summarizeTopCategory(preferences.byDuration.accepted)
-  const lines = [
-    `Accepted ${preferences.acceptedCount}, passed ${preferences.passedCount} recommended workouts.`,
-    typeTop ? `Most accepted workout type: ${typeTop}.` : null,
-    intensityTop ? `Preferred intensity profile: ${intensityTop}.` : null,
-    durationTop ? `Preferred duration bucket: ${durationTop}.` : null,
-  ].filter(Boolean)
-  return lines.join(' ')
 }
 
 function normalizeWorkoutOption(raw: unknown): WorkoutOption {
@@ -1009,7 +1015,13 @@ async function loadHubChatState(uid: string): Promise<HubChatState> {
   return { messages, recommendation, suggestedMessages, ui }
 }
 
+function countUserMessages(conversation: HubChatMessage[]): number {
+  return conversation.reduce((count, message) => count + (message.role === 'user' ? 1 : 0), 0)
+}
+
 async function distillChatPersona(uid: string, conversation: HubChatMessage[]): Promise<void> {
+  if (countUserMessages(conversation) < 2) return
+
   const userRef = db.doc(`users/${uid}`)
   const userSnap = await userRef.get()
   const userData = (userSnap.data() ?? {}) as {
@@ -1078,6 +1090,7 @@ const chatInHubImpl = async (uid: string, userMessage: string) => {
     workoutEnvironmentConstraintsText?: unknown
     fitnessPersonaText?: unknown
     fitnessPersonaPreferenceText?: unknown
+    recommendationPreferences?: unknown
     fitnessPersonaCategoryScores?: unknown
   }
   const goalText = typeof userData.goalText === 'string' ? userData.goalText.trim() : ''
@@ -1091,6 +1104,9 @@ const chatInHubImpl = async (uid: string, userMessage: string) => {
     typeof userData.fitnessPersonaPreferenceText === 'string'
       ? userData.fitnessPersonaPreferenceText.trim()
       : ''
+  const recommendationFeedback = buildRecommendationFeedbackSummary(
+    parseRecommendationPreferences(userData.recommendationPreferences),
+  )
 
   const conversation = [...existingState.messages.slice(-18), { role: 'user' as const, content: userMessage }]
   const conversationContext = conversation.map((msg) => `${msg.role}: ${msg.content}`).join('\n')
@@ -1100,6 +1116,7 @@ const chatInHubImpl = async (uid: string, userMessage: string) => {
     workoutEnvironmentConstraintsText,
     persona,
     preferencePersona,
+    recommendationFeedback,
     formatDateContext(recommendationContext.currentDateContext),
     formatWorkoutsAsText(recommendationContext.workouts),
     conversationContext
@@ -1244,6 +1261,7 @@ export const recommendNextWorkout = onCall(
         workoutEnvironmentConstraintsText?: unknown
         fitnessPersonaText?: unknown
         fitnessPersonaPreferenceText?: unknown
+        recommendationPreferences?: unknown
       }
 
       const goalText = typeof userData.goalText === 'string' ? userData.goalText.trim() : ''
@@ -1257,6 +1275,9 @@ export const recommendNextWorkout = onCall(
         typeof userData.fitnessPersonaPreferenceText === 'string'
           ? userData.fitnessPersonaPreferenceText.trim()
           : ''
+      const recommendationFeedback = buildRecommendationFeedbackSummary(
+        parseRecommendationPreferences(userData.recommendationPreferences),
+      )
 
       const { currentDateContext, workouts, contextCount } = await getRecentRecommendationContext(uid)
 
@@ -1267,8 +1288,10 @@ export const recommendNextWorkout = onCall(
         workoutEnvironmentConstraintsText,
         persona,
         preferencePersona,
+        recommendationFeedback,
         formatDateContext(currentDateContext),
-        formatWorkoutsAsText(workouts)
+        `RECENT WORKOUTS (last ${workouts.length}, ${contextCount} with notes):\n` +
+        `${formatWorkoutsAsText(workouts)}`
       )
 
       const genAI = new GoogleGenerativeAI(apiKey)
@@ -1497,6 +1520,7 @@ export const refineRecommendation = onCall({ secrets: [geminiApiKey] }, async (r
       workoutEnvironmentConstraintsText?: unknown
       fitnessPersonaText?: unknown
       fitnessPersonaPreferenceText?: unknown
+      recommendationPreferences?: unknown
     }
     const goalText = typeof userData.goalText === 'string' ? userData.goalText.trim() : ''
     const workoutEnvironmentConstraintsText =
@@ -1509,6 +1533,9 @@ export const refineRecommendation = onCall({ secrets: [geminiApiKey] }, async (r
       typeof userData.fitnessPersonaPreferenceText === 'string'
         ? userData.fitnessPersonaPreferenceText.trim()
         : ''
+    const recommendationFeedback = buildRecommendationFeedbackSummary(
+      parseRecommendationPreferences(userData.recommendationPreferences),
+    )
     const { currentDateContext, workouts, contextCount } = await getRecentRecommendationContext(uid)
     const apiKey = requireGeminiKey()
 
@@ -1538,6 +1565,7 @@ export const refineRecommendation = onCall({ secrets: [geminiApiKey] }, async (r
       `WORKOUT ENVIRONMENT CONSTRAINTS:\n${workoutEnvironmentConstraintsText || '(not set)'}\n\n` +
       `FITNESS PERSONA:\n${persona || '(not built yet)'}\n\n` +
       `PREFERENCE FEEDBACK PERSONA:\n${preferencePersona || '(no recommendation feedback yet)'}\n\n` +
+      `RECOMMENDATION FEEDBACK:\n${recommendationFeedback || '(none yet)'}\n\n` +
       `DATE: ${formatDateContext(currentDateContext)}\n\n` +
       `RECENT WORKOUTS (last ${workouts.length}, ${contextCount} with notes):\n` +
       `${formatWorkoutsAsText(workouts)}\n\n` +
@@ -1618,7 +1646,7 @@ export const respondToWorkoutRecommendation = onCall({ secrets: [geminiApiKey], 
     const uid = req.auth.uid
     const userRef = db.doc(`users/${uid}`)
 
-    const result = await db.runTransaction(async (tx) => {
+  const result = await db.runTransaction(async (tx) => {
       const userSnap = await tx.get(userRef)
       const userData = (userSnap.data() ?? {}) as { recommendationPreferences?: unknown }
       const previous = parseRecommendationPreferences(userData.recommendationPreferences)
@@ -1646,14 +1674,24 @@ export const respondToWorkoutRecommendation = onCall({ secrets: [geminiApiKey], 
         },
       }
 
-      const preferenceSummary = buildPreferenceSummary(next)
-
       tx.set(
         userRef,
         {
           recommendationPreferences: next,
-          fitnessPersonaPreferenceText: preferenceSummary,
-          fitnessPersonaUpdatedAt: FieldValue.serverTimestamp(),
+          updatedAt: FieldValue.serverTimestamp(),
+        },
+        { merge: true },
+      )
+
+      tx.set(
+        db.doc(`users/${uid}/hubChat/meta`),
+        {
+          recommendation: null,
+          suggestedMessages: [],
+          ui: {
+            showSwipeModal: false,
+            swipePrompt: '',
+          },
           updatedAt: FieldValue.serverTimestamp(),
         },
         { merge: true },
@@ -1672,20 +1710,8 @@ export const respondToWorkoutRecommendation = onCall({ secrets: [geminiApiKey], 
         })
       }
 
-      return { saved, preferenceSummary }
+      return { saved }
     })
-
-    // Update the fitness persona in the background to reflect the new preferences
-    try {
-      const personaText = await buildFitnessPersonaText(uid)
-      await userRef.update({
-        fitnessPersonaText: personaText,
-        fitnessPersonaUpdatedAt: FieldValue.serverTimestamp(),
-      })
-    } catch (personaErr) {
-      console.error('Failed to update persona after recommendation response', personaErr)
-      // Non-blocking for the recommendation response itself
-    }
 
     return result
   } catch (e) {

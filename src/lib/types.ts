@@ -54,6 +54,7 @@ export type RecommendationResponse = {
 export type ChatMessage = {
   role: 'user' | 'assistant'
   content: string
+  visible?: boolean
 }
 
 export type HubChatState = {
