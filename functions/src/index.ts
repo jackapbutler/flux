@@ -996,16 +996,17 @@ async function loadHubChatMessages(uid: string, limitCount = 80): Promise<HubCha
     .orderBy('createdAt', 'asc')
     .limit(limitCount)
     .get()
-  return snap.docs
-    .map((doc) => {
-      const data = (doc.data() ?? {}) as { role?: unknown; content?: unknown; visible?: unknown }
-      const role = data.role === 'user' ? 'user' : data.role === 'assistant' ? 'assistant' : null
-      const content = typeof data.content === 'string' ? sanitizeText(data.content, 2000) : ''
-      if (!role || !content) return null
-      const visible = typeof data.visible === 'boolean' ? data.visible : true
-      return { role, content, visible }
-    })
-    .filter((message): message is HubChatMessage => message !== null)
+  const messages: HubChatMessage[] = []
+  for (const doc of snap.docs) {
+    const data = (doc.data() ?? {}) as { role?: unknown; content?: unknown; visible?: unknown }
+    const role: HubChatMessage['role'] | null =
+      data.role === 'user' ? 'user' : data.role === 'assistant' ? 'assistant' : null
+    const content = typeof data.content === 'string' ? sanitizeText(data.content, 2000) : ''
+    if (!role || !content) continue
+    const visible = typeof data.visible === 'boolean' ? data.visible : true
+    messages.push({ role, content, visible })
+  }
+  return messages
 }
 
 async function loadHubChatState(uid: string): Promise<HubChatState> {

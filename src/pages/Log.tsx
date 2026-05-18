@@ -39,13 +39,6 @@ export function Log() {
     [showNoContextOnly, workouts],
   )
 
-  useEffect(() => {
-    if (!expandedId) return
-    if (!filteredWorkouts.some((workout) => workout.id === expandedId)) {
-      setExpandedId(null)
-    }
-  }, [expandedId, filteredWorkouts])
-
   const noContextCount = useMemo(() => workouts.filter((workout) => !workout.context?.text?.trim()).length, [workouts])
 
   return (
