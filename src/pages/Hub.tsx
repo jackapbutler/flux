@@ -170,7 +170,10 @@ export function Hub() {
     <div className="stack">
       <section className="stack">
         <div className="row" style={{ justifyContent: 'space-between' }}>
-          <h2 style={{ fontSize: '1.1rem' }}>Coach Flux</h2>
+          <div className="row" style={{ gap: 10 }}>
+            <div className="flux-face" aria-hidden="true" />
+            <h2 style={{ fontSize: '1.1rem' }}>Coach Flux</h2>
+          </div>
           <div className="row" style={{ gap: 6 }}>
             {profile?.goalText && <div className="badge" style={{ fontSize: '0.6rem' }}>{profile.goalText}</div>}
           </div>
