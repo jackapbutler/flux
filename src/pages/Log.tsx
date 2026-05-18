@@ -21,6 +21,7 @@ export function Log() {
   const { user } = useAuth()
   const [workouts, setWorkouts] = useState<Workout[]>([])
   const [expandedId, setExpandedId] = useState<string | null>(null)
+  const [showNoContextOnly, setShowNoContextOnly] = useState(false)
 
   const workoutsRef = useMemo(() => user ? collection(db, 'users', user.uid, 'workouts') : null, [user])
 
@@ -30,6 +31,23 @@ export function Log() {
     return onSnapshot(q, (snap) => setWorkouts(snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<Workout, 'id'>) }))))
   }, [workoutsRef])
 
+  const filteredWorkouts = useMemo(
+    () =>
+      showNoContextOnly
+        ? workouts.filter((workout) => !workout.context?.text?.trim())
+        : workouts,
+    [showNoContextOnly, workouts],
+  )
+
+  useEffect(() => {
+    if (!expandedId) return
+    if (!filteredWorkouts.some((workout) => workout.id === expandedId)) {
+      setExpandedId(null)
+    }
+  }, [expandedId, filteredWorkouts])
+
+  const noContextCount = useMemo(() => workouts.filter((workout) => !workout.context?.text?.trim()).length, [workouts])
+
   return (
     <div className="stack">
       <header className="stack" style={{ gap: 4 }}>
@@ -37,14 +55,35 @@ export function Log() {
         <p className="muted">Enrich your activities with context for better coaching.</p>
       </header>
 
+      {workouts.length > 0 && (
+        <section className="row" style={{ gap: 8 }}>
+          <button
+            className={showNoContextOnly ? 'secondary' : 'primary'}
+            onClick={() => setShowNoContextOnly(false)}
+          >
+            All ({workouts.length})
+          </button>
+          <button
+            className={showNoContextOnly ? 'primary' : 'secondary'}
+            onClick={() => setShowNoContextOnly(true)}
+          >
+            Needs Context ({noContextCount})
+          </button>
+        </section>
+      )}
+
       {workouts.length === 0 ? (
         <section className="card stack" style={{ alignItems: 'center', textAlign: 'center', padding: '40px 24px' }}>
           <p className="muted">No workouts found. Sync your Strava history in Settings.</p>
           <Link to="/onboarding" style={{ color: 'var(--accent)', fontWeight: 600, textDecoration: 'none' }}>Go to Settings</Link>
         </section>
+      ) : filteredWorkouts.length === 0 ? (
+        <section className="card stack" style={{ alignItems: 'center', textAlign: 'center', padding: '24px' }}>
+          <p className="muted" style={{ margin: 0 }}>All visible workouts already have context.</p>
+        </section>
       ) : (
         <div className="stack">
-          {workouts.map((w) => {
+          {filteredWorkouts.map((w) => {
             const expanded = expandedId === w.id
             const details = [formatKilometers(w.strava?.distance), formatMinutes(w.strava?.elapsedTime)].filter(Boolean).join(' • ')
             

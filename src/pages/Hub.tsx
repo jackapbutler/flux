@@ -7,7 +7,7 @@ import { RecommendationChat } from '../components/RecommendationChat'
 import { WorkoutIcon } from '../components/WorkoutIcon'
 import { useAuth } from '../lib/useAuth'
 import { db, functions } from '../lib/firebase'
-import type { HubChatState, SavedWorkout, Workout, WorkoutOption } from '../lib/types'
+import type { HubChatState, SavedWorkout, WorkoutOption } from '../lib/types'
 
 type MaybeFirebaseError = { code?: string; message?: string; details?: unknown }
 
@@ -46,11 +46,9 @@ function mergeHubMessages(messages: HubChatState['messages'], hiddenMessages: Hu
 export function Hub() {
   const nav = useNavigate()
   const { user, profile } = useAuth()
-  const [workouts, setWorkouts] = useState<Workout[]>([])
   const [respondingToRecommendation, setRespondingToRecommendation] = useState(false)
   const [savedWorkouts, setSavedWorkouts] = useState<SavedWorkout[]>([])
   const [expandedSavedId, setExpandedSavedId] = useState<string | null>(null)
-  const [swipeModalOpen, setSwipeModalOpen] = useState(false)
   const [chatLoading, setChatLoading] = useState(false)
   const [sendingMessage, setSendingMessage] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -65,14 +63,7 @@ export function Hub() {
     }
   })
 
-  const workoutsRef = useMemo(() => user ? collection(db, 'users', user.uid, 'workouts') : null, [user])
   const savedWorkoutsRef = useMemo(() => user ? collection(db, 'users', user.uid, 'savedWorkouts') : null, [user])
-
-  useEffect(() => {
-    if (!workoutsRef) return
-    const q = query(workoutsRef, orderBy('strava.startDate', 'desc'), limit(25))
-    return onSnapshot(q, (snap) => setWorkouts(snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<Workout, 'id'>) }))))
-  }, [workoutsRef])
 
   useEffect(() => {
     if (!savedWorkoutsRef) return
@@ -92,7 +83,6 @@ export function Hub() {
         ...res.data,
         messages: mergeHubMessages(res.data.messages, prev.messages),
       }))
-      if (res.data.ui?.showSwipeModal) setSwipeModalOpen(true)
     } catch (e) { setError(errorMessage(e)) } finally { setChatLoading(false) }
   }, [connected])
 
@@ -127,7 +117,6 @@ export function Hub() {
         ...res.data,
         messages: mergeHubMessages(res.data.messages, prev.messages),
       }))
-      if (res.data.ui?.showSwipeModal) setSwipeModalOpen(true)
     } catch (e) { setError(errorMessage(e)); void loadChatState() } finally { setSendingMessage(false) }
   }
 
@@ -148,7 +137,6 @@ export function Hub() {
               : null,
       }))
       setStatus(decision === 'accept' ? 'Plan accepted' : 'Passed')
-      setSwipeModalOpen(false)
     } catch (e) { setError(errorMessage(e)) } finally { setRespondingToRecommendation(false) }
   }
 
@@ -163,8 +151,6 @@ export function Hub() {
       setError(errorMessage(e))
     }
   }
-
-  const hasSwipeRecommendations = Boolean(chatState.recommendation && chatState.recommendation.options.length > 0)
 
   return (
     <div className="stack">
@@ -187,73 +173,25 @@ export function Hub() {
               loading={chatLoading || sendingMessage}
               disabled={respondingToRecommendation}
             />
-          </div>
-        )}
-      </section>
-
-      {swipeModalOpen && hasSwipeRecommendations && (
-        <div className="modal-overlay" onClick={() => setSwipeModalOpen(false)}>
-          <div className="modal-card stack" onClick={(e) => e.stopPropagation()}>
-            <div className="row" style={{ justifyContent: 'space-between' }}>
-              <div className="stack" style={{ gap: 2 }}>
-                <h3 style={{ fontSize: '1.1rem' }}>Workout Cards</h3>
-                <p className="muted small" style={{ margin: 0 }}>Review and save what fits today.</p>
-              </div>
-              <button className="secondary small" onClick={() => setSwipeModalOpen(false)}>Close</button>
-            </div>
-
-            <div className="stack" style={{ gap: 16 }}>
-              {chatState.recommendation?.options.map((option, idx) => (
-                <RecommendationCard
-                  key={idx}
-                  option={option}
-                  index={idx}
-                  onPass={() => void respondToRecommendation('pass', option)}
-                  onAccept={() => void respondToRecommendation('accept', option)}
-                  disabled={respondingToRecommendation}
-                />
-              ))}
-            </div>
-
-            {chatState.recommendation?.safetyChecks && chatState.recommendation.safetyChecks.length > 0 && (
-              <div className="stack" style={{ gap: 8, marginTop: '8px' }}>
-                <div className="rec-label">Safety Checks</div>
-                <ul className="whyList" style={{ marginTop: 0 }}>
-                  {chatState.recommendation.safetyChecks.map((check, i) => <li key={i}>{check}</li>)}
-                </ul>
+            {chatState.recommendation && chatState.recommendation.options.length > 0 && (
+              <div className="stack" style={{ gap: 12 }}>
+                <h2 style={{ fontSize: '1.1rem' }}>Recommended Plans</h2>
+                <div className="stack">
+                  {chatState.recommendation.options.map((option, idx) => (
+                    <RecommendationCard
+                      key={idx}
+                      option={option}
+                      index={idx}
+                      onPass={() => void respondToRecommendation('pass', option)}
+                      onAccept={() => void respondToRecommendation('accept', option)}
+                      disabled={respondingToRecommendation}
+                    />
+                  ))}
+                </div>
               </div>
             )}
           </div>
-        </div>
-      )}
-
-      {chatState.recommendation && chatState.recommendation.options.length > 0 && !swipeModalOpen && (
-        <section className="stack">
-          <h2 style={{ fontSize: '1.1rem' }}>Recommended Plans</h2>
-          <div className="stack">
-            {chatState.recommendation.options.map((option, idx) => (
-              <RecommendationCard
-                key={idx}
-                option={option}
-                index={idx}
-                onPass={() => void respondToRecommendation('pass', option)}
-                onAccept={() => void respondToRecommendation('accept', option)}
-                disabled={respondingToRecommendation}
-              />
-            ))}
-          </div>
-        </section>
-      )}
-
-      <section className="grid" style={{ gridTemplateColumns: '1fr 1fr' }}>
-        <div className="card stack" style={{ padding: '16px' }}>
-          <div className="rec-label">Activities</div>
-          <div style={{ fontSize: '1.5rem', fontWeight: 800, color: 'var(--text-h)' }}>{workouts.length}</div>
-        </div>
-        <div className="card stack" style={{ padding: '16px' }}>
-          <div className="rec-label">Context Added</div>
-          <div style={{ fontSize: '1.5rem', fontWeight: 800, color: 'var(--text-h)' }}>{workouts.filter(w => w.context?.text).length}</div>
-        </div>
+        )}
       </section>
 
       {savedWorkouts.length > 0 && (

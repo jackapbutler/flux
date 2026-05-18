@@ -29,6 +29,7 @@ export type RecommendationResponse = {
 type HubChatMessage = {
   role: 'user' | 'assistant'
   content: string
+  visible?: boolean
 }
 
 type HubChatState = {
@@ -67,6 +68,9 @@ type TrainingPlanResponse = {
 // Keep CTA prompts concise for mobile bubbles and enforce both readability (words) and payload safety (chars).
 const MAX_SWIPE_PROMPT_LENGTH = 96
 const MAX_SWIPE_PROMPT_WORDS = 16
+const HUB_AUTOCHECKIN_BREAK_MS = 1000 * 60 * 60 * 24
+const HUB_AUTOCHECKIN_PROMPT =
+  'The athlete just opened the Hub. Start with a proactive check-in and give focused guidance for today based on recent training and recovery context.'
 
 type RecommendationPreferences = {
   acceptedCount: number
@@ -151,6 +155,19 @@ function readContextTags(raw: unknown): string[] | null {
 function sanitizeText(raw: unknown, maxLen: number): string {
   if (typeof raw !== 'string') return ''
   return raw.replace(/\s+/g, ' ').trim().slice(0, maxLen)
+}
+
+function timestampToMillis(raw: unknown): number | null {
+  if (!raw || typeof raw !== 'object') return null
+  const value = raw as { toMillis?: unknown; seconds?: unknown }
+  if (typeof value.toMillis === 'function') {
+    const millis = (value.toMillis as () => number)()
+    return Number.isFinite(millis) ? millis : null
+  }
+  if (typeof value.seconds === 'number') {
+    return value.seconds * 1000
+  }
+  return null
 }
 
 function parsePreferenceMap(raw: unknown): Record<string, number> {
@@ -981,11 +998,12 @@ async function loadHubChatMessages(uid: string, limitCount = 80): Promise<HubCha
     .get()
   return snap.docs
     .map((doc) => {
-      const data = (doc.data() ?? {}) as { role?: unknown; content?: unknown }
+      const data = (doc.data() ?? {}) as { role?: unknown; content?: unknown; visible?: unknown }
       const role = data.role === 'user' ? 'user' : data.role === 'assistant' ? 'assistant' : null
       const content = typeof data.content === 'string' ? sanitizeText(data.content, 2000) : ''
       if (!role || !content) return null
-      return { role, content }
+      const visible = typeof data.visible === 'boolean' ? data.visible : true
+      return { role, content, visible }
     })
     .filter((message): message is HubChatMessage => message !== null)
 }
@@ -1074,10 +1092,42 @@ async function distillChatPersona(uid: string, conversation: HubChatMessage[]): 
 
 // Chat functions with explicit CORS support
 const getHubChatStateImpl = async (uid: string) => {
-  return await loadHubChatState(uid)
+  const state = await loadHubChatState(uid)
+  const metaRef = db.doc(`users/${uid}/hubChat/meta`)
+  const metaSnap = await metaRef.get()
+  const metaData = (metaSnap.data() ?? {}) as { lastHubVisitAt?: unknown }
+  const nowMs = Date.now()
+  const lastHubVisitAtMs = timestampToMillis(metaData.lastHubVisitAt)
+  const shouldAutoCheckIn =
+    state.messages.length === 0 ||
+    !lastHubVisitAtMs ||
+    nowMs - lastHubVisitAtMs >= HUB_AUTOCHECKIN_BREAK_MS
+
+  if (shouldAutoCheckIn) {
+    const refreshedState = await chatInHubImpl(uid, HUB_AUTOCHECKIN_PROMPT, {
+      persistUserMessage: false,
+      userMessageVisible: false,
+      includeInPersonaDistillation: false,
+    })
+    await metaRef.set({ lastHubVisitAt: FieldValue.serverTimestamp() }, { merge: true })
+    return refreshedState
+  }
+
+  await metaRef.set({ lastHubVisitAt: FieldValue.serverTimestamp() }, { merge: true })
+  return state
 }
 
-const chatInHubImpl = async (uid: string, userMessage: string) => {
+type ChatInHubOptions = {
+  persistUserMessage?: boolean
+  userMessageVisible?: boolean
+  includeInPersonaDistillation?: boolean
+}
+
+const chatInHubImpl = async (uid: string, userMessage: string, options: ChatInHubOptions = {}) => {
+  const persistUserMessage = options.persistUserMessage !== false
+  const userMessageVisible = options.userMessageVisible !== false
+  const includeInPersonaDistillation = options.includeInPersonaDistillation !== false
+
   const userRef = db.doc(`users/${uid}`)
   const [existingState, userSnap, recommendationContext] = await Promise.all([
     loadHubChatState(uid),
@@ -1108,7 +1158,10 @@ const chatInHubImpl = async (uid: string, userMessage: string) => {
     parseRecommendationPreferences(userData.recommendationPreferences),
   )
 
-  const conversation = [...existingState.messages.slice(-18), { role: 'user' as const, content: userMessage }]
+  const conversation = [
+    ...existingState.messages.slice(-18),
+    { role: 'user' as const, content: userMessage, visible: userMessageVisible },
+  ]
   const conversationContext = conversation.map((msg) => `${msg.role}: ${msg.content}`).join('\n')
 
   const prompt = prompts.buildChatPrompt(
@@ -1166,12 +1219,15 @@ const chatInHubImpl = async (uid: string, userMessage: string) => {
 
   const hubMessagesRef = db.collection(`users/${uid}/hubChat`)
   const batch = db.batch()
-  batch.set(hubMessagesRef.doc(), {
-    role: 'user',
-    content: userMessage,
-    createdAt: FieldValue.serverTimestamp(),
-    updatedAt: FieldValue.serverTimestamp(),
-  })
+  if (persistUserMessage) {
+    batch.set(hubMessagesRef.doc(), {
+      role: 'user',
+      content: userMessage,
+      visible: userMessageVisible,
+      createdAt: FieldValue.serverTimestamp(),
+      updatedAt: FieldValue.serverTimestamp(),
+    })
+  }
   batch.set(hubMessagesRef.doc(), {
     role: 'assistant',
     content: assistantMessage,
@@ -1191,7 +1247,9 @@ const chatInHubImpl = async (uid: string, userMessage: string) => {
   await batch.commit()
 
   const fullConversation = [...conversation, { role: 'assistant' as const, content: assistantMessage }]
-  await distillChatPersona(uid, fullConversation)
+  if (includeInPersonaDistillation) {
+    await distillChatPersona(uid, fullConversation)
+  }
 
   return await loadHubChatState(uid)
 }
